@@ -99,7 +99,8 @@ async function addAnnouncement(title, content, type, priority) {
     };
 
     try {
-        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G:append?valueInputOption=RAW&key=${API_KEY}`;
+        const appendUrl = "https://script.google.com/macros/s/AKfycbxamwcjGFoQSgAGX8yKY0o0fNpOjmKp9ktla-g5W276OMDfKtm0A3w2WwpRp1ryPWh1IA/exec";
+
         
         const values = [[
             newAnnouncement.id.toString(),
@@ -146,11 +147,24 @@ async function updateReportStatus(reportId, status, adminNotes = '') {
             row[5] = status;
             row[8] = adminNotes;
             
-            await fetch(updateReportUrl, {
-                method: 'PUT',
+            await fetch(appendUrl, {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ values: [row] })
-            });
+                body: JSON.stringify({
+                    action: "append",
+                    sheet: "Announcements",
+                    values: [
+                    newAnnouncement.id.toString(),
+                    newAnnouncement.title,
+                    newAnnouncement.content,
+                    newAnnouncement.type,
+                    newAnnouncement.date,
+                    newAnnouncement.author,
+                    newAnnouncement.priority
+                    ]
+                })
+                });
+
         }
 
         // Update MapData sheet
