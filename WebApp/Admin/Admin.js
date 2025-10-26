@@ -87,6 +87,7 @@ function loadFallbackData() {
 }
 
 // Add announcement to Google Sheets
+// Add announcement using Apps Script
 async function addAnnouncement(title, content, type, priority) {
     const newAnnouncement = {
         id: Date.now(),
@@ -99,30 +100,35 @@ async function addAnnouncement(title, content, type, priority) {
     };
 
     try {
-        const appendUrl = "https://script.google.com/macros/s/AKfycbzAVOGkcAJj4W0pVr4gfD_NQhAzKdyN29yB9q5-IY0b7JD5QYZfj42aK8GP6VAVOTwZ/exec";
-
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCICo14JQb7mysnxBbf3_j8mejStLjTrgKg0GddoFeVIxIgTPwlnOFeFlA/exec";
         
-        const values = [[
-            newAnnouncement.id.toString(),
-            newAnnouncement.title,
-            newAnnouncement.content,
-            newAnnouncement.type,
-            newAnnouncement.date,
-            newAnnouncement.author,
-            newAnnouncement.priority
-        ]];
-
-        await fetch(appendUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ values })
+        // Use URL parameters for GET request
+        const params = new URLSearchParams({
+            action: 'addAnnouncement',
+            id: newAnnouncement.id.toString(),
+            title: newAnnouncement.title,
+            content: newAnnouncement.content,
+            type: newAnnouncement.type,
+            date: newAnnouncement.date,
+            author: newAnnouncement.author,
+            priority: newAnnouncement.priority
         });
 
+        const url = `${APPS_SCRIPT_URL}?${params}`;
+        
+        console.log('Sending announcement to:', url);
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'no-cors' // Use no-cors to avoid CORS issues
+        });
+
+        // With no-cors we can't read the response, but the request will go through
         announcements.unshift(newAnnouncement);
-        showNotification('Announcement published to cloud!', 'success');
+        showNotification('Announcement published via Apps Script!', 'success');
 
     } catch (error) {
-        console.error('Error saving to Google Sheets:', error);
+        console.error('Error saving to Apps Script:', error);
         announcements.unshift(newAnnouncement);
         showNotification('Announcement saved locally', 'warning');
     }
@@ -130,66 +136,27 @@ async function addAnnouncement(title, content, type, priority) {
     return newAnnouncement;
 }
 
-// Update report status in Google Sheets
+// Update report status using Apps Script
 async function updateReportStatus(reportId, status, adminNotes = '') {
     try {
-        // Update UserReports sheet
-        const reportsData = await fetch(USER_REPORTS_URL);
-        const reportsJson = await reportsData.json();
-        const reportRows = reportsJson.values || [];
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCICo14JQb7mysnxBbf3_j8mejStLjTrgKg0GddoFeVIxIgTPwlnOFeFlA/exec";
         
-        const reportRowIndex = reportRows.findIndex(row => row[0] === reportId);
-        
-        if (reportRowIndex !== -1) {
-            const updateReportUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A${reportRowIndex + 2}:I${reportRowIndex + 2}?valueInputOption=RAW&key=${API_KEY}`;
-            
-            const row = reportRows[reportRowIndex];
-            row[5] = status;
-            row[8] = adminNotes;
-            
-            await fetch(appendUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                action: "append",
-                sheet: "Announcements",
-                values: [
-                newAnnouncement.id.toString(),
-                newAnnouncement.title,
-                newAnnouncement.content,
-                newAnnouncement.type,
-                newAnnouncement.date,
-                newAnnouncement.author,
-                newAnnouncement.priority,
-                ],
-            }),
-            mode: "cors",
-            });
+        // Use URL parameters for GET request
+        const params = new URLSearchParams({
+            action: 'updateReportStatus',
+            reportId: reportId,
+            status: status,
+            adminNotes: adminNotes
+        });
 
-
-        }
-
-        // Update MapData sheet
-        const mapDataRes = await fetch(MAP_DATA_URL);
-        const mapDataJson = await mapDataRes.json();
-        const mapRows = mapDataJson.values || [];
+        const url = `${APPS_SCRIPT_URL}?${params}`;
         
-        const mapRowIndex = mapRows.findIndex(row => row[0] === reportId);
+        console.log('Updating report status:', url);
         
-        if (mapRowIndex !== -1) {
-            const updateMapUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/MapData!A${mapRowIndex + 2}:F${mapRowIndex + 2}?valueInputOption=RAW&key=${API_KEY}`;
-            
-            const mapRow = mapRows[mapRowIndex];
-            mapRow[4] = status;
-            
-            await fetch(updateMapUrl, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ values: [mapRow] })
-            });
-        }
+        await fetch(url, {
+            method: 'GET',
+            mode: 'no-cors'
+        });
 
         // Update local cache
         const report = userReports.find(r => r.id === reportId);
@@ -203,11 +170,11 @@ async function updateReportStatus(reportId, status, adminNotes = '') {
             mapItem.status = status;
         }
 
-        showNotification('Report status updated across all systems!', 'success');
+        showNotification('Report status updated!', 'success');
 
     } catch (error) {
-        console.error('Error updating Google Sheets:', error);
-        // Fallback to localStorage
+        console.error('Error updating via Apps Script:', error);
+        // Fallback to local update
         const report = userReports.find(r => r.id === reportId);
         if (report) {
             report.status = status;
@@ -1851,3 +1818,38 @@ async function loadData() {
         // Auto-render the home page on load
         render();
         //
+        // Test Apps Script connection
+async function testAppsScript() {
+    try {
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCICo14JQb7mysnxBbf3_j8mejStLjTrgKg0GddoFeVIxIgTPwlnOFeFlA/exec";
+        const testUrl = `${APPS_SCRIPT_URL}?action=test`;
+        
+        console.log('Testing Apps Script:', testUrl);
+        
+        const response = await fetch(testUrl);
+        const data = await response.json();
+        
+        console.log('Test response:', data);
+        showNotification(`Apps Script: ${data.message}`, 'success');
+        return data;
+    } catch (error) {
+        console.error('Apps Script test failed:', error);
+        showNotification('Apps Script connection failed', 'error');
+        return null;
+    }
+}
+
+// Add this to your initializeAdminPage function to test on load:
+async function initializeAdminPage() {
+    // Load data from Google Sheets first
+    await loadData();
+
+    // Test Apps Script connection
+    await testAppsScript();
+    
+    // Then render
+    render();
+    
+    // Close sidebar when clicking on overlay
+    document.querySelector('.sidebar-overlay').addEventListener('click', closeSidebar);
+}
