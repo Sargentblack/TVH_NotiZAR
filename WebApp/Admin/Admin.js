@@ -148,22 +148,26 @@ async function updateReportStatus(reportId, status, adminNotes = '') {
             row[8] = adminNotes;
             
             await fetch(appendUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: "append",
-                    sheet: "Announcements",
-                    values: [
-                    newAnnouncement.id.toString(),
-                    newAnnouncement.title,
-                    newAnnouncement.content,
-                    newAnnouncement.type,
-                    newAnnouncement.date,
-                    newAnnouncement.author,
-                    newAnnouncement.priority
-                    ]
-                })
-                });
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                action: "append",
+                sheet: "Announcements",
+                values: [
+                newAnnouncement.id.toString(),
+                newAnnouncement.title,
+                newAnnouncement.content,
+                newAnnouncement.type,
+                newAnnouncement.date,
+                newAnnouncement.author,
+                newAnnouncement.priority,
+                ],
+            }),
+            mode: "cors",
+            });
+
 
         }
 
