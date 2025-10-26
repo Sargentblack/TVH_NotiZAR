@@ -99,7 +99,7 @@ async function addAnnouncement(title, content, type, priority) {
     };
 
     try {
-        const appendUrl = "https://script.google.com/macros/s/AKfycbywA0B1l3FX3GsFukjsWzZqNVSMc5ZvLA7X8GX6nDS6jBsEThTXWdiqfdxk2n8mN4kn/exec";
+        const appendUrl = "https://script.google.com/macros/s/AKfycbzAVOGkcAJj4W0pVr4gfD_NQhAzKdyN29yB9q5-IY0b7JD5QYZfj42aK8GP6VAVOTwZ/exec";
 
         
         const values = [[
