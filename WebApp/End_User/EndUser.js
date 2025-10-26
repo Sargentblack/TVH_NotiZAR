@@ -1,5 +1,164 @@
-// EndUser.js - Enhanced version
-import { supabase, subscribeToAdminUpdates } from './supabaseClient.js';
+// === GOOGLE SHEETS CONFIGURATION ===
+const SHEET_ID = '1Gpj_0729wCx9mgg0NS7OY9J_hnkzOCuwfNR7J6-pw6c';
+const API_KEY = 'AIzaSyD6pyc_Aze3RK_CjSg7kgOZe0ks471ZUgk';
+
+// Google Sheets URLs
+const ANNOUNCEMENTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G?key=${API_KEY}`;
+const USER_REPORTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A2:I?key=${API_KEY}`;
+const MAP_DATA_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/MapData!A2:F?key=${API_KEY}`;
+
+// Global data arrays
+let announcements = [];
+let userReports = [];
+let mapData = [];
+
+// Load data from Google Sheets
+async function loadData() {
+    try {
+        console.log("Loading data from Google Sheets...");
+        
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Convert sheet data to objects
+        announcements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6]
+        }));
+
+        userReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incidentType: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            adminNotes: row[8]
+        }));
+
+        mapData = (mapDataResponse.values || []).map(row => ({
+            reportId: row[0],
+            latitude: parseFloat(row[1]),
+            longitude: parseFloat(row[2]),
+            type: row[3],
+            status: row[4],
+            timestamp: row[5]
+        }));
+
+        console.log("Data loaded successfully:", { announcements, userReports, mapData });
+        
+    } catch (error) {
+        console.error('Error loading data from Google Sheets:', error);
+        // Fallback to demo data
+        loadFallbackData();
+    }
+}
+
+// Fallback demo data
+function loadFallbackData() {
+    announcements = [
+        {
+            id: 1,
+            title: 'Welcome to NotiZAR!',
+            content: 'Community protection system demo',
+            type: 'info',
+            date: '2025-01-21',
+            author: 'Admin',
+            priority: 'medium'
+        }
+    ];
+    
+    userReports = [];
+    mapData = [];
+}
+
+// Add user report with location to Google Sheets
+async function addUserReport(reportData, coordinates = null) {
+    const newReport = {
+        id: `UR-${Date.now()}`,
+        ...reportData,
+        timestamp: new Date().toLocaleString(),
+        status: 'pending',
+        adminNotes: '',
+        coordinates: coordinates
+    };
+
+    try {
+        // Add to UserReports
+        const reportsAppendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A2:I:append?valueInputOption=RAW&key=${API_KEY}`;
+        
+        await fetch(reportsAppendUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                values: [[
+                    newReport.id,
+                    newReport.incidentType,
+                    newReport.location,
+                    newReport.description,
+                    newReport.timestamp,
+                    newReport.status,
+                    newReport.anonymous.toString(),
+                    newReport.contact || '',
+                    newReport.adminNotes
+                ]]
+            })
+        });
+
+        // Add to MapData if coordinates available
+        if (coordinates) {
+            const mapAppendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/MapData!A2:F:append?valueInputOption=RAW&key=${API_KEY}`;
+            
+            await fetch(mapAppendUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    values: [[
+                        newReport.id,
+                        coordinates.lat.toString(),
+                        coordinates.lng.toString(),
+                        newReport.incidentType,
+                        newReport.status,
+                        newReport.timestamp
+                    ]]
+                })
+            });
+
+            mapData.unshift({
+                reportId: newReport.id,
+                latitude: coordinates.lat,
+                longitude: coordinates.lng,
+                type: newReport.incidentType,
+                status: newReport.status,
+                timestamp: newReport.timestamp
+            });
+        }
+
+        userReports.unshift(newReport);
+        showNotification('Report submitted with location data!', 'success');
+
+    } catch (error) {
+        console.error('Error saving to Google Sheets:', error);
+        userReports.unshift(newReport);
+        showNotification('Report saved locally', 'warning');
+    }
+
+    return newReport;
+}
 
 // Submit a new report
 export const submitReport = async (reportData) => {
@@ -157,19 +316,29 @@ export const initializeUserForm = () => {
                     return;
                 }
 
-                const result = await submitReport({
-                    name, age, email, iDNum, report, reportType, location, anon
-                });
+                // Get coordinates if available
+                let coordinates = null;
+                if (location.includes(',')) {
+                    const [lat, lng] = location.split(',').map(coord => parseFloat(coord.trim()));
+                    if (!isNaN(lat) && !isNaN(lng)) {
+                        coordinates = { lat, lng };
+                    }
+                }
 
-                if (result.success) {
-                    document.getElementById("output").textContent = "Report submitted successfully!\n" + JSON.stringify(result.data, null, 2);
+                // Use the new Google Sheets function instead of submitReport
+                const result = await addUserReport({
+                    name, age, email, iDNum, report, reportType, location, anon
+                }, coordinates);
+
+                if (result) {
+                    document.getElementById("output").textContent = "Report submitted successfully!\n" + JSON.stringify(result, null, 2);
                     alert("Report submitted successfully!");
                     
                     // Clear form
                     form.reset();
                 } else {
-                    document.getElementById("output").textContent = "Error: " + result.error;
-                    alert("Error submitting report: " + result.error);
+                    document.getElementById("output").textContent = "Error submitting report";
+                    alert("Error submitting report");
                 }
             } catch (error) {
                 console.error("Unexpected error:", error);
@@ -188,16 +357,92 @@ if (typeof window !== 'undefined') {
         listenForAdminUpdates, 
         markUpdateAsRead, 
         initializeUserForm,
-        getUserLocation
+        getUserLocation,
+        addUserReport,
+        loadData
     };
     
-    // Auto-initialize if user page
-    if (window.location.pathname.includes('report') || window.location.pathname.includes('user')) {
-        document.addEventListener('DOMContentLoaded', () => {
-            initializeUserForm();
-        });
+    // Auto-initialize if user page - FIXED VERSION
+    document.addEventListener('DOMContentLoaded', async () => {
+        console.log("DOM loaded, initializing EndUser...");
+        
+        // Load data from Google Sheets first
+        await loadData();
+
+        // Enhanced loadData with better error handling
+async function loadData() {
+    try {
+        console.log("Loading data from Google Sheets...");
+        
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        // Check if responses are OK
+        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
+        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
+        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Convert sheet data to objects
+        announcements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6]
+        }));
+
+        userReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incidentType: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            adminNotes: row[8]
+        }));
+
+        mapData = (mapDataResponse.values || []).map(row => ({
+            reportId: row[0],
+            latitude: parseFloat(row[1]),
+            longitude: parseFloat(row[2]),
+            type: row[3],
+            status: row[4],
+            timestamp: row[5]
+        }));
+
+        console.log("✅ Data loaded successfully from Google Sheets!");
+        
+    } catch (error) {
+        console.error('❌ Google Sheets Error:', error);
+        console.log('🔄 Using fallback data...');
+        loadFallbackData();
     }
 }
+        
+        // Wait a bit for DOM to be fully ready, then initialize form
+        setTimeout(() => {
+            if (document.getElementById("reportForm")) {
+                initializeUserForm();
+                console.log("User form initialized successfully");
+            } else {
+                console.log("Report form not found on this page");
+            }
+        }, 100);
+    });
+}
+
+
 function renderMap() {
     const main = document.createElement('main');
     main.className = 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8';

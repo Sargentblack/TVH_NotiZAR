@@ -1,4 +1,209 @@
+// === GOOGLE SHEETS CONFIGURATION ===
+const SHEET_ID = '1Gpj_0729wCx9mgg0NS7OY9J_hnkzOCuwfNR7J6-pw6c';
+const API_KEY = 'AIzaSyD6pyc_Aze3RK_CjSg7kgOZe0ks471ZUgk';
 
+// Google Sheets URLs
+const ANNOUNCEMENTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G?key=${API_KEY}`;
+const USER_REPORTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A2:I?key=${API_KEY}`;
+const MAP_DATA_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/MapData!A2:F?key=${API_KEY}`;
+
+// Global data arrays (replace your existing ones)
+let announcements = [];
+let userReports = [];
+let mapData = [];
+
+// Load data from Google Sheets
+async function loadData() {
+    try {
+        console.log("Loading data from Google Sheets...");
+        
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Convert sheet data to objects
+        announcements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6]
+        }));
+
+        userReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incidentType: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            adminNotes: row[8]
+        }));
+
+        mapData = (mapDataResponse.values || []).map(row => ({
+            reportId: row[0],
+            latitude: parseFloat(row[1]),
+            longitude: parseFloat(row[2]),
+            type: row[3],
+            status: row[4],
+            timestamp: row[5]
+        }));
+
+        console.log("Data loaded successfully:", { announcements, userReports, mapData });
+        
+    } catch (error) {
+        console.error('Error loading data from Google Sheets:', error);
+        // Fallback to demo data
+        loadFallbackData();
+    }
+}
+
+// Fallback demo data
+function loadFallbackData() {
+    announcements = [
+        {
+            id: 1,
+            title: 'Demo: NotiZAR System',
+            content: 'This is running with demo data. Connect Google Sheets for live features!',
+            type: 'info',
+            date: '2025-01-21',
+            author: 'Admin',
+            priority: 'medium'
+        }
+    ];
+    
+    userReports = [];
+    mapData = [];
+}
+
+// Add announcement to Google Sheets
+async function addAnnouncement(title, content, type, priority) {
+    const newAnnouncement = {
+        id: Date.now(),
+        title,
+        content,
+        type,
+        date: new Date().toISOString().split('T')[0],
+        author: 'Admin',
+        priority
+    };
+
+    try {
+        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G:append?valueInputOption=RAW&key=${API_KEY}`;
+        
+        const values = [[
+            newAnnouncement.id.toString(),
+            newAnnouncement.title,
+            newAnnouncement.content,
+            newAnnouncement.type,
+            newAnnouncement.date,
+            newAnnouncement.author,
+            newAnnouncement.priority
+        ]];
+
+        await fetch(appendUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values })
+        });
+
+        announcements.unshift(newAnnouncement);
+        showNotification('Announcement published to cloud!', 'success');
+
+    } catch (error) {
+        console.error('Error saving to Google Sheets:', error);
+        announcements.unshift(newAnnouncement);
+        showNotification('Announcement saved locally', 'warning');
+    }
+
+    return newAnnouncement;
+}
+
+// Update report status in Google Sheets
+async function updateReportStatus(reportId, status, adminNotes = '') {
+    try {
+        // Update UserReports sheet
+        const reportsData = await fetch(USER_REPORTS_URL);
+        const reportsJson = await reportsData.json();
+        const reportRows = reportsJson.values || [];
+        
+        const reportRowIndex = reportRows.findIndex(row => row[0] === reportId);
+        
+        if (reportRowIndex !== -1) {
+            const updateReportUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A${reportRowIndex + 2}:I${reportRowIndex + 2}?valueInputOption=RAW&key=${API_KEY}`;
+            
+            const row = reportRows[reportRowIndex];
+            row[5] = status;
+            row[8] = adminNotes;
+            
+            await fetch(updateReportUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values: [row] })
+            });
+        }
+
+        // Update MapData sheet
+        const mapDataRes = await fetch(MAP_DATA_URL);
+        const mapDataJson = await mapDataRes.json();
+        const mapRows = mapDataJson.values || [];
+        
+        const mapRowIndex = mapRows.findIndex(row => row[0] === reportId);
+        
+        if (mapRowIndex !== -1) {
+            const updateMapUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/MapData!A${mapRowIndex + 2}:F${mapRowIndex + 2}?valueInputOption=RAW&key=${API_KEY}`;
+            
+            const mapRow = mapRows[mapRowIndex];
+            mapRow[4] = status;
+            
+            await fetch(updateMapUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values: [mapRow] })
+            });
+        }
+
+        // Update local cache
+        const report = userReports.find(r => r.id === reportId);
+        if (report) {
+            report.status = status;
+            report.adminNotes = adminNotes;
+        }
+
+        const mapItem = mapData.find(m => m.reportId === reportId);
+        if (mapItem) {
+            mapItem.status = status;
+        }
+
+        showNotification('Report status updated across all systems!', 'success');
+
+    } catch (error) {
+        console.error('Error updating Google Sheets:', error);
+        // Fallback to localStorage
+        const report = userReports.find(r => r.id === reportId);
+        if (report) {
+            report.status = status;
+            report.adminNotes = adminNotes;
+        }
+
+        const mapItem = mapData.find(m => m.reportId === reportId);
+        if (mapItem) {
+            mapItem.status = status;
+        }
+        
+        showNotification('Status updated locally', 'warning');
+    }
+}
 
         // Admin page functionality
         let activeView = 'home';
@@ -155,25 +360,93 @@
         ];
 
         // Admin-specific data
-        const userReports = [
+        /*const userReports = [
             { id: 'UR-2025-001', type: 'Suspicious Activity', location: 'Hatfield', user: 'John D.', timestamp: '2025-01-21 14:30', status: 'pending', priority: 'medium' },
             { id: 'UR-2025-002', type: 'Vandalism', location: 'Sunnyside', user: 'Sarah M.', timestamp: '2025-01-21 13:15', status: 'investigating', priority: 'high' },
             { id: 'UR-2025-003', type: 'Infrastructure Damage', location: 'Brooklyn', user: 'Mike T.', timestamp: '2025-01-21 11:45', status: 'resolved', priority: 'low' },
             { id: 'UR-2025-004', type: 'Suspicious Activity', location: 'Arcadia', user: 'Anonymous', timestamp: '2025-01-21 10:20', status: 'pending', priority: 'medium' }
-        ];
+        ];*/
 
-        const announcements = [
+        /*const announcements = [
             { id: 1, title: 'System Maintenance', content: 'The NotiZAR system will undergo maintenance on January 25th from 2:00 AM to 4:00 AM.', author: 'Admin', timestamp: '2025-01-20 09:30' },
             { id: 2, title: 'Community Meeting', content: 'Join us for the monthly community safety meeting on January 28th at the Hatfield Community Center.', author: 'Admin', timestamp: '2025-01-18 14:15' }
-        ];
+        ];*/
 
-        function initializeAdminPage() {
+        // Initialize Admin page
+        async function initializeAdminPage() {
+            // Load data from Google Sheets first
+            await loadData();
+
+            // Enhanced loadData with better error handling
+async function loadData() {
+    try {
+        console.log("Loading data from Google Sheets...");
+        
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        // Check if responses are OK
+        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
+        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
+        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Convert sheet data to objects
+        announcements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6]
+        }));
+
+        userReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incidentType: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            adminNotes: row[8]
+        }));
+
+        mapData = (mapDataResponse.values || []).map(row => ({
+            reportId: row[0],
+            latitude: parseFloat(row[1]),
+            longitude: parseFloat(row[2]),
+            type: row[3],
+            status: row[4],
+            timestamp: row[5]
+        }));
+
+        console.log("✅ Data loaded successfully from Google Sheets!");
+        
+    } catch (error) {
+        console.error('❌ Google Sheets Error:', error);
+        console.log('🔄 Using fallback data...');
+        loadFallbackData();
+    }
+}
+            
+            // Then render
             render();
             
             // Close sidebar when clicking on overlay
             document.querySelector('.sidebar-overlay').addEventListener('click', closeSidebar);
         }
 
+// Auto-initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initializeAdminPage);
         // Utility functions
         function navigateTo(view) {
             activeView = view;
@@ -1539,37 +1812,24 @@
             });
         }
 
-        function handleAnnouncementSubmit(e) {
-            e.preventDefault();
-            
-            const title = document.getElementById('announcementTitle').value;
-            const content = document.getElementById('announcementContent').value;
-            
-            if (!title || !content) {
-                showNotification('Please fill in all fields.', 'error');
-                return;
-            }
-            
-            // Add new announcement
-            const newAnnouncement = {
-                id: announcements.length + 1,
-                title: title,
-                content: content,
-                author: 'Admin',
-                timestamp: new Date().toLocaleString()
-            };
-            
-            announcements.unshift(newAnnouncement);
-            
-            showNotification('Announcement published successfully!', 'success');
-            
-            // Reset form and re-render admin view
-            document.getElementById('announcementForm').reset();
-            render();
-
-            // Auto-initialize the admin page
-            initializeAdminPage();
+    function handleAnnouncementSubmit(e) {
+        e.preventDefault();
+        
+        const title = document.getElementById('announcementTitle').value;
+        const content = document.getElementById('announcementContent').value;
+        
+        if (!title || !content) {
+            showNotification('Please fill in all fields.', 'error');
+            return;
         }
+        
+        // Use the new Google Sheets function
+        addAnnouncement(title, content, 'info', 'medium');
+        
+        // Reset form and re-render admin view
+        document.getElementById('announcementForm').reset();
+        render();
+}
         // Auto-render the home page on load
         render();
         //
