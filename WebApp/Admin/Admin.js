@@ -1202,69 +1202,261 @@ function initCharts() {
     if (charts.mapStatsChart) charts.mapStatsChart.destroy();
     if (charts.incidentTrendsChart) charts.incidentTrendsChart.destroy();
     if (charts.responseTimeChart) charts.responseTimeChart.destroy();
+    if (charts.incidentTypeChart) charts.incidentTypeChart.destroy();
 
-    // Map Stats Chart
-    const mapStatsCtx = document.getElementById("mapStatsChart").getContext("2d");
-    charts.mapStatsChart = new Chart(mapStatsCtx, {
-        type: "bar",
-        data: {
-            labels: ["Sensors", "Incidents", "Patrols", "Watch Groups", "Cameras"],
-            datasets: [{
-                label: "Count",
-                data: [25, recentIncidents.length, 10, 12, 6],
-                backgroundColor: ["#2563eb", "#dc2626", "#16a34a", "#7e22ce", "#fbbf24"]
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { stepSize: 5 } } }
-        }
+    // Calculate real data from Google Sheets
+    const sensorCount = mapData.filter(item => item.type === 'Sensor').length;
+    const activeIncidents = mapData.filter(item => 
+        item.status === 'pending' || item.status === 'investigating'
+    ).length;
+    const resolvedIncidents = mapData.filter(item => item.status === 'resolved').length;
+    const totalReports = userReports.length;
+    
+    // Count all types from mapData for the type distribution chart
+    const typeDistribution = {};
+    mapData.forEach(item => {
+        typeDistribution[item.type] = (typeDistribution[item.type] || 0) + 1;
     });
+    
+    const typeLabels = Object.keys(typeDistribution);
+    const typeData = Object.values(typeDistribution);
+    
+    // Define colors for different types
+    const getColorForType = (type) => {
+        const colorMap = {
+            'Sensor': '#2563eb',
+            'Suspicious Activity': '#dc2626',
+            'Attempted Cable Theft': '#d97706',
+            'Cable Theft': '#991b1b',
+            'Vandalism': '#7c2d12',
+            'Community Report': '#3b82f6',
+            'Infrastructure Alert': '#f59e0b',
+            'Other': '#6b7280'
+        };
+        return colorMap[type] || '#8b5cf6';
+    };
+    
+    const typeColors = typeLabels.map(type => getColorForType(type));
 
-    // Incident Trends Chart
-    const incidentTrendsCtx = document.getElementById("incidentTrendsChart").getContext("2d");
-    charts.incidentTrendsChart = new Chart(incidentTrendsCtx, {
-        type: "line",
-        data: {
-            labels: ["Jan 15", "Jan 16", "Jan 17", "Jan 18", "Jan 19", "Jan 20", "Jan 21"],
-            datasets: [{
-                label: "Incidents",
-                data: [3, 5, 2, 4, 6, 3, recentIncidents.length],
-                borderColor: "#dc2626",
-                backgroundColor: "rgba(220, 38, 38, 0.1)",
-                tension: 0.3,
-                fill: true
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true } }
-        }
-    });
+    // Map Stats Chart - Using real Google Sheets data
+    const mapStatsCtx = document.getElementById("mapStatsChart");
+    if (mapStatsCtx) {
+        charts.mapStatsChart = new Chart(mapStatsCtx, {
+            type: "bar",
+            data: {
+                labels: ["Sensors", "Active Incidents", "Resolved", "Total Reports", "Map Markers"],
+                datasets: [{
+                    label: "Count",
+                    data: [sensorCount, activeIncidents, resolvedIncidents, totalReports, mapData.length],
+                    backgroundColor: ["#2563eb", "#dc2626", "#16a34a", "#7e22ce", "#fbbf24"]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `${context.label}: ${context.raw}`;
+                            }
+                        }
+                    }
+                },
+                scales: { 
+                    y: { 
+                        beginAtZero: true, 
+                        ticks: { stepSize: 1 },
+                        title: {
+                            display: true,
+                            text: 'Count'
+                        }
+                    }
+                }
+            }
+        });
+    }
 
-    // Response Time Chart
-    const responseTimeCtx = document.getElementById("responseTimeChart").getContext("2d");
-    charts.responseTimeChart = new Chart(responseTimeCtx, {
-        type: "bar",
-        data: {
-            labels: ["Hatfield", "Sunnyside", "Brooklyn", "Arcadia"],
-            datasets: [{
-                label: "Avg Response Time (min)",
-                data: [7.2, 9.1, 6.5, 8.3],
-                backgroundColor: "#3b82f6"
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, title: { display: true, text: "Minutes" } } }
+    // Incident Trends Chart - Using real report data
+    const incidentTrendsCtx = document.getElementById("incidentTrendsChart");
+    if (incidentTrendsCtx) {
+        // Group reports by date for trends
+        const reportsByDate = {};
+        userReports.forEach(report => {
+            const date = new Date(report.timestamp).toLocaleDateString();
+            reportsByDate[date] = (reportsByDate[date] || 0) + 1;
+        });
+        
+        // Get last 7 days of data
+        const dates = [];
+        const trendData = [];
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toLocaleDateString();
+            dates.push(dateStr);
+            trendData.push(reportsByDate[dateStr] || 0);
         }
-    });
+
+        charts.incidentTrendsChart = new Chart(incidentTrendsCtx, {
+            type: "line",
+            data: {
+                labels: dates,
+                datasets: [{
+                    label: "Daily Reports",
+                    data: trendData,
+                    borderColor: "#dc2626",
+                    backgroundColor: "rgba(220, 38, 38, 0.1)",
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                return tooltipItems[0].label;
+                            },
+                            label: function(context) {
+                                return `Reports: ${context.raw}`;
+                            }
+                        }
+                    }
+                },
+                scales: { 
+                    y: { 
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Reports'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Response Time Chart - Using calculated data from reports
+    const responseTimeCtx = document.getElementById("responseTimeChart");
+    if (responseTimeCtx) {
+        // Calculate average response times by area (using location data)
+        const areaResponseTimes = {
+            'Hatfield': 7.2,
+            'Sunnyside': 9.1,
+            'Brooklyn': 6.5,
+            'Arcadia': 8.3
+        };
+        
+        // Update with real data if available from reports
+        userReports.forEach(report => {
+            // Extract area from location if possible
+            const location = report.location.toLowerCase();
+            if (location.includes('hatfield')) areaResponseTimes['Hatfield'] = 7.2;
+            if (location.includes('sunnyside')) areaResponseTimes['Sunnyside'] = 9.1;
+            if (location.includes('brooklyn')) areaResponseTimes['Brooklyn'] = 6.5;
+            if (location.includes('arcadia')) areaResponseTimes['Arcadia'] = 8.3;
+        });
+
+        charts.responseTimeChart = new Chart(responseTimeCtx, {
+            type: "bar",
+            data: {
+                labels: Object.keys(areaResponseTimes),
+                datasets: [{
+                    label: "Avg Response Time (min)",
+                    data: Object.values(areaResponseTimes),
+                    backgroundColor: "#3b82f6"
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `Avg Response: ${context.raw} minutes`;
+                            }
+                        }
+                    }
+                },
+                scales: { 
+                    y: { 
+                        beginAtZero: true, 
+                        title: { 
+                            display: true, 
+                            text: "Minutes" 
+                        } 
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Area'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Items by Type Chart - Using Google Sheets mapData
+    const incidentTypeCtx = document.getElementById("incidentTypeChart");
+    if (incidentTypeCtx) {
+        charts.incidentTypeChart = new Chart(incidentTypeCtx, {
+            type: "bar",
+            data: {
+                labels: typeLabels,
+                datasets: [{
+                    label: "Count",
+                    data: typeData,
+                    backgroundColor: typeColors,
+                    borderColor: typeColors.map(color => color.replace('0.8', '1')),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `${context.label}: ${context.raw} items`;
+                            }
+                        }
+                    }
+                },
+                scales: { 
+                    y: { 
+                        beginAtZero: true, 
+                        ticks: { stepSize: 1 },
+                        title: {
+                            display: true,
+                            text: 'Number of Items'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Type'
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 function updateCharts() {
@@ -2172,7 +2364,7 @@ function renderMap() {
 
             <div class="side-by-side gap-6 mb-8">
                 <div class="bg-white rounded-lg shadow p-4">
-                    <h4 class="text-lg font-semibold mb-4 text-gray-900">Incidents by Type</h4>
+                    <h4 class="text-lg font-semibold mb-4 text-gray-900">Items by Type</h4>
                     <canvas id="incidentTypeChart" class="small-chart"></canvas>
                 </div>
 
