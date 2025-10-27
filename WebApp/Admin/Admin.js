@@ -2399,3 +2399,370 @@ function renderMap() {
 
 // Add cleanup when leaving page
 window.addEventListener('beforeunload', stopAutoRefresh);
+
+// === LOCAL STORAGE AND CACHING ===
+const MAP_CACHE_KEY = 'notizar_map_cache';
+const CACHE_TIMESTAMP_KEY = 'notizar_cache_timestamp';
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
+// Enhanced loadData function with caching
+async function loadData(forceRefresh = false) {
+    try {
+        // Check cache first
+        const cachedData = getCachedData();
+        const shouldUseCache = cachedData && !forceRefresh && !isCacheExpired();
+        
+        if (shouldUseCache) {
+            console.log("📦 Using cached data");
+            announcements = cachedData.announcements || [];
+            userReports = cachedData.userReports || [];
+            mapData = cachedData.mapData || [];
+            
+            // Show cached data immediately
+            if (activeView === 'map') {
+                initMap();
+            }
+            
+            // Then update in background
+            setTimeout(() => loadData(true), 1000);
+            return;
+        }
+
+        console.log("🌐 Fetching fresh data from Google Sheets...");
+        
+        // Show loading state
+        if (activeView === 'map') {
+            showLoadingState();
+        }
+
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
+        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
+        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Process data
+        const newAnnouncements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6]
+        }));
+
+        const newUserReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incidentType: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            adminNotes: row[8]
+        }));
+
+        const newMapData = (mapDataResponse.values || []).map(row => ({
+            reportId: row[0],
+            latitude: parseFloat(row[1]),
+            longitude: parseFloat(row[2]),
+            type: row[3],
+            status: row[4],
+            timestamp: row[5]
+        }));
+
+        // Update global arrays
+        announcements = newAnnouncements;
+        userReports = newUserReports;
+        mapData = newMapData;
+
+        // Cache the data
+        cacheData({
+            announcements: newAnnouncements,
+            userReports: newUserReports,
+            mapData: newMapData
+        });
+
+        console.log("✅ Fresh data loaded from Google Sheets!");
+        
+        // Check for new reports
+        checkForNewReports();
+        
+        // Update UI
+        if (activeView === 'map') {
+            hideLoadingState();
+            initMap();
+            showNotification('Map updated with latest data', 'success');
+        }
+        
+    } catch (error) {
+        console.error('❌ Google Sheets Error:', error);
+        
+        // Try to use cached data as fallback
+        const cachedData = getCachedData();
+        if (cachedData) {
+            console.log('🔄 Falling back to cached data');
+            announcements = cachedData.announcements || [];
+            userReports = cachedData.userReports || [];
+            mapData = cachedData.mapData || [];
+            
+            if (activeView === 'map') {
+                hideLoadingState();
+                initMap();
+                showNotification('Using cached data (connection failed)', 'warning');
+            }
+        } else {
+            console.log('🔄 Using demo data');
+            loadFallbackData();
+            if (activeView === 'map') {
+                hideLoadingState();
+                initMap();
+                showNotification('Using demo data (no connection)', 'error');
+            }
+        }
+    }
+}
+
+// Cache management functions
+function getCachedData() {
+    try {
+        const cached = localStorage.getItem(MAP_CACHE_KEY);
+        return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+        console.error('Error reading cache:', e);
+        return null;
+    }
+}
+
+function cacheData(data) {
+    try {
+        localStorage.setItem(MAP_CACHE_KEY, JSON.stringify(data));
+        localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+    } catch (e) {
+        console.error('Error caching data:', e);
+    }
+}
+
+function isCacheExpired() {
+    try {
+        const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+        if (!timestamp) return true;
+        
+        const age = Date.now() - parseInt(timestamp);
+        return age > CACHE_EXPIRY;
+    } catch (e) {
+        return true;
+    }
+}
+
+function clearCache() {
+    try {
+        localStorage.removeItem(MAP_CACHE_KEY);
+        localStorage.removeItem(CACHE_TIMESTAMP_KEY);
+        console.log('🗑️ Cache cleared');
+    } catch (e) {
+        console.error('Error clearing cache:', e);
+    }
+}
+
+// Loading state management
+function showLoadingState() {
+    const mapElement = document.getElementById('liveMap');
+    if (mapElement && !document.getElementById('mapLoading')) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'mapLoading';
+        loadingDiv.innerHTML = `
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                       background: rgba(255,255,255,0.9); padding: 20px; border-radius: 8px; 
+                       text-align: center; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <div class="fas fa-sync-alt fa-spin" style="font-size: 24px; color: #2563eb; margin-bottom: 10px;"></div>
+                <div style="font-weight: 500; color: #374151;">Loading latest data...</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">Using cached data temporarily</div>
+            </div>
+        `;
+        mapElement.style.position = 'relative';
+        mapElement.appendChild(loadingDiv);
+    }
+}
+
+function hideLoadingState() {
+    const loadingElement = document.getElementById('mapLoading');
+    if (loadingElement) {
+        loadingElement.remove();
+    }
+}
+
+// Enhanced updateMap function
+function updateMap() {
+    if (mapInstance) {
+        showLoadingState();
+        loadData(true); // Force refresh
+    }
+}
+
+// Enhanced auto-refresh with smart updates
+function startAutoRefresh() {
+    // Clear existing interval
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+    
+    // Refresh data every 30 seconds, but only force refresh every 5 minutes
+    let refreshCount = 0;
+    autoRefreshInterval = setInterval(() => {
+        if (activeView === 'map') {
+            refreshCount++;
+            // Force refresh every 5th time (every 2.5 minutes)
+            const forceRefresh = refreshCount % 5 === 0;
+            
+            if (forceRefresh) {
+                console.log('🔄 Force refreshing map data');
+                updateMap();
+            } else {
+                console.log('📡 Checking for updates...');
+                loadData(false); // Use cache if not expired
+            }
+        }
+    }, 30000); // 30 seconds
+}
+
+// Enhanced renderMap function with cache status
+function renderMap() {
+    const cacheStatus = getCachedData() ? '🟢 Using cached data' : '🟡 No cache available';
+    const lastUpdate = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    const lastUpdateTime = lastUpdate ? new Date(parseInt(lastUpdate)).toLocaleTimeString() : 'Never';
+    
+    const main = document.createElement('div');
+    main.innerHTML = `
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-900">Live Monitoring Map</h2>
+            <p class="text-gray-600">Real-time incidents, sensor data, and community reports</p>
+            <div class="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                <span id="cacheStatus">${cacheStatus}</span>
+                <span id="lastUpdate">Last update: ${lastUpdateTime}</span>
+                <button onclick="clearCache(); showNotification('Cache cleared', 'success'); render();" 
+                        class="text-xs text-red-600 hover:text-red-800">
+                    <i class="fas fa-trash mr-1"></i>Clear Cache
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <h3 class="text-xl font-semibold text-gray-900">Tshwane Community Map</h3>
+                <div class="flex flex-wrap gap-2">
+                    <button class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                        <div class="w-3 h-3 bg-blue-600 rounded-full mr-2"></div>
+                        Sensors
+                    </button>
+                    <button class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                        <div class="w-3 h-3 bg-red-600 rounded-full mr-2"></div>
+                        Active Incidents
+                    </button>
+                    <button class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                        <div class="w-3 h-3 bg-green-600 rounded-full mr-2"></div>
+                        Resolved
+                    </button>
+                </div>
+                <div class="flex gap-2">
+                    <button id="refreshMapBtn" class="refresh-button">
+                        <i class="fas fa-sync-alt mr-1"></i>
+                        Refresh Now
+                    </button>
+                    <button id="forceRefreshBtn" class="refresh-button" style="background: #d97706;">
+                        <i class="fas fa-bolt mr-1"></i>
+                        Force Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Map -->
+            <div id="liveMap" class="rounded-lg shadow-md mb-6" style="height: 400px;"></div>
+
+            <!-- Rest of the map content remains the same -->
+            <div class="marker-stats">
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.filter(m => m.type === 'Sensor').length}</div>
+                    <div class="marker-stat-label">Sensors</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.filter(m => m.status === 'pending' || m.status === 'investigating').length}</div>
+                    <div class="marker-stat-label">Active Incidents</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.filter(m => m.status === 'resolved').length}</div>
+                    <div class="marker-stat-label">Resolved</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${userReports.length}</div>
+                    <div class="marker-stat-label">Total Reports</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.length}</div>
+                    <div class="marker-stat-label">Total Markers</div>
+                </div>
+            </div>
+
+            <div class="side-by-side gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h4 class="text-lg font-semibold mb-4 text-gray-900">Items by Type</h4>
+                    <canvas id="incidentTypeChart" class="small-chart"></canvas>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-4 overflow-x-auto">
+                    <h4 class="text-lg font-semibold mb-4 text-gray-900">Tag Details</h4>
+                    <div class="tag-details-container">
+                        <table class="min-w-full border border-gray-200 text-sm">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="px-3 py-2 border">Type</th>
+                                    <th class="px-3 py-2 border">Location</th>
+                                    <th class="px-3 py-2 border">Status</th>
+                                    <th class="px-3 py-2 border">Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tagTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Initialize map after DOM render
+    setTimeout(() => {
+        initMap();
+        document.getElementById('refreshMapBtn').addEventListener('click', updateMap);
+        document.getElementById('forceRefreshBtn').addEventListener('click', () => loadData(true));
+    }, 50);
+
+    return main;
+}
+
+// Enhanced initializeAdminPage
+async function initializeAdminPage() {
+    // Load cached data immediately for fast display
+    await loadData(false);
+    
+    // Test Apps Script connection in background
+    testAppsScript().catch(console.error);
+    
+    // Then render
+    render();
+    
+    // Close sidebar when clicking on overlay
+    document.querySelector('.sidebar-overlay').addEventListener('click', closeSidebar);
+    
+    // Start auto-refresh
+    startAutoRefresh();
+}
