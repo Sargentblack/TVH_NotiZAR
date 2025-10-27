@@ -130,27 +130,21 @@ body {
     margin-bottom: var(--space-lg);
 }
 
+/* Remove the old form label styles and replace with these */
 .form-group {
-    margin-bottom: var(--space-lg);
-    text-align: left;
     position: relative;
-}
-
-.form-label {
-    display: block;
-    margin-bottom: var(--space-sm);
-    font-weight: 500;
-    color: var(--dark);
+    margin-bottom: var(--space-lg);
 }
 
 .form-input {
     width: 100%;
-    padding: 0.75rem;
-    border: 1px solid var(--gray-light);
+    padding: 1rem;
+    border: 2px solid var(--gray-light);
     border-radius: var(--radius);
     font-size: 1rem;
     transition: all 0.3s ease;
     background: #f8fafc;
+    font-family: inherit;
 }
 
 .form-input:focus {
@@ -161,9 +155,25 @@ body {
     transform: translateY(-2px);
 }
 
+.form-input::placeholder {
+    color: #9ca3af;
+    transition: color 0.3s ease;
+}
+
+.form-input:focus::placeholder {
+    color: #6b7280;
+}
+
+/* Remove the old focused state styles that were causing the label overlap */
+.form-group.focused .form-label,
+.form-label {
+    display: none; /* Remove the floating labels entirely */
+}
+
+/* Improve login button styling */
 .login-btn {
     width: 100%;
-    padding: 0.75rem;
+    padding: 1rem;
     background: var(--primary);
     color: var(--white);
     border: none;
@@ -174,21 +184,7 @@ body {
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
-}
-
-.login-btn::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-    transition: left 0.5s ease;
-}
-
-.login-btn:hover::before {
-    left: 100%;
+    margin-top: 0.5rem;
 }
 
 .login-btn:hover {
@@ -466,6 +462,7 @@ body {
 /* Main Content Styles */
 main {
     margin-top: 80px;
+    overflow-x: hidden;
 }
 
 /* Section Titles */
@@ -492,10 +489,11 @@ main {
     margin: 0 auto;
     padding: 4rem 2rem;
     gap: 3rem;
+    min-height: calc(100vh - 80px); /* Ensure full viewport height minus navbar */
 }
-
 .hero-content {
     flex: 1;
+    max-width: 600px;
 }
 
 .hero-title {
@@ -504,6 +502,8 @@ main {
     color: #1a365d;
     margin-bottom: 1.5rem;
     line-height: 1.2;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .hero-subtitle {
@@ -511,6 +511,8 @@ main {
     color: #4a5568;
     margin-bottom: 2rem;
     line-height: 1.6;
+    max-width: 100%;
+    word-wrap: break-word;
 }
 
 .hero-buttons {
@@ -558,6 +560,7 @@ main {
     display: flex;
     justify-content: center;
     align-items: center;
+    max-width: 500px; /* Limit image width */
 }
 
 .hero-stats {
@@ -1302,8 +1305,10 @@ main {
 }
 
 .hero-img {
-    max-height: 500px;
-    width: auto;
+    max-width: 100%;
+    height: auto;
+    border-radius: 10px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
 }
 
 .feature-image img {
@@ -1397,14 +1402,26 @@ img {
     .hero-section {
         flex-direction: column;
         text-align: center;
+        padding: 2rem 1rem;
+        gap: 2rem;
     }
     
     .hero-title {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
+        margin-bottom: 1rem;
     }
     
-    .hero-buttons {
-        justify-content: center;
+    .hero-subtitle {
+        font-size: 1.1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .hero-content {
+        max-width: 100%;
+    }
+    
+    .hero-image {
+        max-width: 100%;
     }
     
     .about-content,
@@ -1475,6 +1492,17 @@ img {
     
     .sidebar {
         width: 280px;
+    }
+    .hero-title {
+        font-size: 1.8rem;
+    }
+    
+    .hero-subtitle {
+        font-size: 1rem;
+    }
+    
+    .hero-section {
+        padding: 1.5rem 1rem;
     }
 }
 
@@ -2045,4 +2073,19 @@ body.login-active {
     .team-image {
         height: 180px;
     }
+}
+.hero-content * {
+    max-width: 100%;
+    overflow: visible !important;
+}
+.hero-title,
+.hero-subtitle {
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: block !important;
+}
+.hero-content {
+    position: relative;
+    z-index: 2;
+    background: transparent; /* Ensure no background is hiding text */
 }

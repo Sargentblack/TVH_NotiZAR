@@ -479,7 +479,7 @@ function initScrollAnimations() {
 
 // Form field animations
 function initFormAnimations() {
-    const formInputs = document.querySelectorAll('.form-input');
+    /*const formInputs = document.querySelectorAll('.form-input');
     
     formInputs.forEach(input => {
         input.addEventListener('focus', () => {
@@ -491,7 +491,7 @@ function initFormAnimations() {
                 input.parentElement.classList.remove('focused');
             }
         });
-    });
+    });*/
 }
 
 // Enhanced login page animations
@@ -531,6 +531,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+/*
 // Add this CSS for form animations (add to your style.css)
 const formAnimationCSS = `
 .form-group {
@@ -580,4 +581,4 @@ const formAnimationCSS = `
 // Inject the CSS
 const style = document.createElement('style');
 style.textContent = formAnimationCSS;
-document.head.appendChild(style);
+document.head.appendChild(style);*/
