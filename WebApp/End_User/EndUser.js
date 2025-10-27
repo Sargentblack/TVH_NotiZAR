@@ -1,3 +1,4 @@
+
 // === GOOGLE SHEETS CONFIGURATION ===
 const SHEET_ID = '1Gpj_0729wCx9mgg0NS7OY9J_hnkzOCuwfNR7J6-pw6c';
 const API_KEY = 'AIzaSyD6pyc_Aze3RK_CjSg7kgOZe0ks471ZUgk';

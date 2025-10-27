@@ -554,6 +554,12 @@ function render() {
 function renderHome() {
     const main = document.createElement('div');
     main.innerHTML = `
+
+
+         <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-900">Administrative Dashboard</h2>
+            <p class="text-gray-600">Manage system settings, user reports, and community announcements</p>
+        </div>
         <div class="mb-8">
             <h2 class="text-2xl font-bold text-gray-900">Community Safety Dashboard</h2>
             <p class="text-gray-600">Welcome back, Admin! Here's the latest from your area.</p>
@@ -613,108 +619,111 @@ function renderHome() {
             </div>
         </div>
 
-        <div class="side-by-side gap-8 mb-8">
-            <div class="bg-white rounded-xl shadow-md p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900">Recent Activity</h3>
-                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View All</button>
+        <div class="admin-section">
+            <h3 class="admin-section-title">Analytics Overview</h3>
+            <div class="compact-charts">
+                <div class="chart-container">
+                    <canvas id="adminIncidentsChart"></canvas>
                 </div>
-                <div class="space-y-4">
-                    ${recentActivity.map(item => `
-                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div class="flex justify-between items-start">
-                                <div class="flex items-start space-x-3">
-                                    <div class="mt-1">
-                                        ${item.type === 'sensor_alert' ? 
-                                            '<div class="bg-red-100 p-2 rounded-full"><i class="fas fa-wifi text-red-600"></i></div>' : 
-                                            item.type === 'community_report' ? 
-                                            '<div class="bg-blue-100 p-2 rounded-full"><i class="fas fa-users text-blue-600"></i></div>' : 
-                                            '<div class="bg-green-100 p-2 rounded-full"><i class="fas fa-shield-check text-green-600"></i></div>'
-                                        }
-                                    </div>
-                                    <div>
-                                        <h4 class="font-medium text-gray-900">${item.location}</h4>
-                                        <p class="text-sm text-gray-600">${item.message}</p>
-                                        <div class="flex items-center mt-2">
-                                            <span class="text-xs ${item.status === 'resolved' ? 'bg-green-100 text-green-800' : item.status === 'investigating' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'} px-2 py-1 rounded-full">${item.status}</span>
-                                            <span class="text-xs text-gray-500 ml-2">${item.time}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
+                <div class="chart-container">
+                    <canvas id="adminResponseTimeChart"></canvas>
                 </div>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-md p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900">Community Watch</h3>
-                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">Join Group</button>
-                </div>
-                <div class="space-y-4">
-                    ${watchGroups.map(group => `
-                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <h4 class="font-medium text-gray-900">${group.name}</h4>
-                                    <div class="flex items-center mt-2">
-                                        <span class="text-xs ${group.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'} px-2 py-1 rounded-full">${group.active ? 'Active' : 'Inactive'}</span>
-                                        <span class="text-xs text-gray-500 ml-2">${group.members} members</span>
-                                    </div>
-                                </div>
-                                <button class="text-blue-600 hover:text-blue-800">
-                                    <i class="fas fa-chevron-right"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `).join('')}
+                <div class="chart-container">
+                    <canvas id="adminUserActivityChart"></canvas>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-semibold text-gray-900">Sensor Status by Zone</h3>
-                <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View Details</button>
+        <div class="side-by-side gap-8">
+            <div class="admin-section">
+                <h3 class="admin-section-title">User Reports</h3>
+                <table class="reports-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Type</th>
+                            <th>Location</th>
+                            <th>Timestamp</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${userReports.map(report => `
+                            <tr>
+                                <td>${report.id}</td>
+                                <td>${report.incidentType}</td>
+                                <td>${report.location}</td>
+                                <td>${report.timestamp}</td>
+                                <td><span class="status-badge status-${report.status}">${report.status}</span></td>
+                                <td>
+                                    <button class="btn btn-primary btn-sm" onclick="updateReportStatus('${report.id}', 'investigating')">Investigate</button>
+                                    <button class="btn btn-success btn-sm" onclick="updateReportStatus('${report.id}', 'resolved')">Resolve</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                ${sensorStatus.map(zone => `
-                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <h4 class="font-medium text-gray-900 mb-2">${zone.zone}</h4>
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="text-sm text-gray-600">Sensors</span>
-                            <span class="text-sm font-medium">${zone.active}/${zone.total}</span>
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
-                            <div class="bg-green-600 h-2 rounded-full" style="width: ${(zone.active/zone.total)*100}%"></div>
-                        </div>
-                        <div class="flex justify-between text-xs text-gray-500">
-                            <span>${zone.offline} offline</span>
-                            <span>${zone.alerts} alerts</span>
-                        </div>
+
+            <div class="admin-section">
+                <h3 class="admin-section-title">System Announcements</h3>
+                <form class="announcement-form" id="announcementForm">
+                    <div>
+                        <label class="form-label">Announcement Title</label>
+                        <input type="text" class="form-input" id="announcementTitle" required>
                     </div>
-                `).join('')}
-            </div>
-        </div>
-
-        <div class="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 rounded-xl shadow-lg p-8 text-white">
-            <div class="max-w-3xl">
-                <h3 class="text-2xl font-bold mb-4">Report Suspicious Activity</h3>
-                <p class="mb-6">See something that doesn't look right? Report it immediately and help prevent cable theft in your community.</p>
-                <div class="flex flex-col sm:flex-row gap-4">
-                    <button onclick="navigateTo('report')" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center">
-                        <i class="fas fa-exclamation-triangle mr-2"></i>
-                        Emergency Report
-                    </button>
-                    <button class="bg-white hover:bg-gray-100 text-blue-900 font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center">
-                        <i class="fas fa-clipboard-list mr-2"></i>
-                        Non-Emergency Report
-                    </button>
+                    <div>
+                        <label class="form-label">Announcement Content</label>
+                        <textarea class="form-textarea" id="announcementContent" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Publish Announcement</button>
+                </form>
+                
+                <h4 class="text-lg font-semibold mb-4">Recent Announcements</h4>
+                <div class="announcements-list">
+                    ${announcements.map(announcement => `
+                        <div class="announcement-item">
+                            <div class="announcement-title">${announcement.title}</div>
+                            <div class="announcement-content">${announcement.content}</div>
+                            <div class="announcement-meta">
+                                <span>By: ${announcement.author}</span>
+                                <span>${announcement.date}</span>
+                            </div>
+                        </div>
+                    `).join('')}
                 </div>
             </div>
         </div>
+
+        <div class="admin-section">
+            <h3 class="admin-section-title">System Management</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="card">
+                    <h4 class="font-semibold mb-4">User Management</h4>
+                    <p class="text-gray-600 mb-4">Manage user accounts and permissions</p>
+                    <button class="btn btn-primary">Manage Users</button>
+                </div>
+                <div class="card">
+                    <h4 class="font-semibold mb-4">Sensor Configuration</h4>
+                    <p class="text-gray-600 mb-4">Configure and monitor sensor networks</p>
+                    <button class="btn btn-primary">Sensor Settings</button>
+                </div>
+                <div class="card">
+                    <h4 class="font-semibold mb-4">System Logs</h4>
+                    <p class="text-gray-600 mb-4">View system activity and error logs</p>
+                    <button class="btn btn-primary">View Logs</button>
+                </div>
+            </div>
+        </div>
+
     `;
+    setTimeout(() => {
+        initAdminCharts();
+        document.getElementById('announcementForm').addEventListener('submit', handleAnnouncementSubmit);
+    }, 50);
+
+
     return main;
 }
 
@@ -1806,112 +1815,7 @@ function initAICharts() {
 }
 
 function renderAdmin() {
-    const main = document.createElement('div');
-    main.innerHTML = `
-        <div class="mb-8">
-            <h2 class="text-2xl font-bold text-gray-900">Administrative Dashboard</h2>
-            <p class="text-gray-600">Manage system settings, user reports, and community announcements</p>
-        </div>
-
-        <div class="admin-section">
-            <h3 class="admin-section-title">Analytics Overview</h3>
-            <div class="compact-charts">
-                <div class="chart-container">
-                    <canvas id="adminIncidentsChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="adminResponseTimeChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="adminUserActivityChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <div class="side-by-side gap-8">
-            <div class="admin-section">
-                <h3 class="admin-section-title">User Reports</h3>
-                <table class="reports-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Type</th>
-                            <th>Location</th>
-                            <th>Timestamp</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${userReports.map(report => `
-                            <tr>
-                                <td>${report.id}</td>
-                                <td>${report.incidentType}</td>
-                                <td>${report.location}</td>
-                                <td>${report.timestamp}</td>
-                                <td><span class="status-badge status-${report.status}">${report.status}</span></td>
-                                <td>
-                                    <button class="btn btn-primary btn-sm" onclick="updateReportStatus('${report.id}', 'investigating')">Investigate</button>
-                                    <button class="btn btn-success btn-sm" onclick="updateReportStatus('${report.id}', 'resolved')">Resolve</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="admin-section">
-                <h3 class="admin-section-title">System Announcements</h3>
-                <form class="announcement-form" id="announcementForm">
-                    <div>
-                        <label class="form-label">Announcement Title</label>
-                        <input type="text" class="form-input" id="announcementTitle" required>
-                    </div>
-                    <div>
-                        <label class="form-label">Announcement Content</label>
-                        <textarea class="form-textarea" id="announcementContent" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Publish Announcement</button>
-                </form>
-                
-                <h4 class="text-lg font-semibold mb-4">Recent Announcements</h4>
-                <div class="announcements-list">
-                    ${announcements.map(announcement => `
-                        <div class="announcement-item">
-                            <div class="announcement-title">${announcement.title}</div>
-                            <div class="announcement-content">${announcement.content}</div>
-                            <div class="announcement-meta">
-                                <span>By: ${announcement.author}</span>
-                                <span>${announcement.date}</span>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        </div>
-
-        <div class="admin-section">
-            <h3 class="admin-section-title">System Management</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="card">
-                    <h4 class="font-semibold mb-4">User Management</h4>
-                    <p class="text-gray-600 mb-4">Manage user accounts and permissions</p>
-                    <button class="btn btn-primary">Manage Users</button>
-                </div>
-                <div class="card">
-                    <h4 class="font-semibold mb-4">Sensor Configuration</h4>
-                    <p class="text-gray-600 mb-4">Configure and monitor sensor networks</p>
-                    <button class="btn btn-primary">Sensor Settings</button>
-                </div>
-                <div class="card">
-                    <h4 class="font-semibold mb-4">System Logs</h4>
-                    <p class="text-gray-600 mb-4">View system activity and error logs</p>
-                    <button class="btn btn-primary">View Logs</button>
-                </div>
-            </div>
-        </div>
-    `;
-
+    
     // Initialize admin charts after DOM render
     setTimeout(() => {
         initAdminCharts();
