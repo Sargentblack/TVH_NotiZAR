@@ -29,19 +29,33 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCIC
 // === SUPABASE CLIENT INITIALIZATION ===
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Data management functions
+// === SUPABASE CONNECTION STATUS ===
+let supabaseConnected = false;
+
+// Update connection status function
+function updateConnectionStatus(connected) {
+    supabaseConnected = connected;
+    const statusElement = document.getElementById('supabaseStatus');
+    if (statusElement) {
+        statusElement.innerHTML = connected ? 
+            '<span style="color: #10B981;"><i class="fas fa-check-circle"></i> Supabase Connected</span>' :
+            '<span style="color: #EF4444;"><i class="fas fa-exclamation-triangle"></i> Supabase Offline</span>';
+    }
+}
+
+// Enhanced loadData function with Supabase priority
 async function loadData(forceRefresh = false) {
     try {
         console.log("🔄 Loading admin data from Supabase...");
         
         const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
-            supabase.from('announcements').select('*').order('id', { ascending: false }),
+            supabase.from('announcements').select('*').order('created_at', { ascending: false }),
             supabase.from('user_reports').select('*').order('created_at', { ascending: false }),
             supabase.from('map_data').select('*')
         ]);
 
         if (announcementsRes.error || reportsRes.error || mapDataRes.error) {
-            throw new Error('Supabase error');
+            throw new Error('Supabase error: ' + (announcementsRes.error?.message || reportsRes.error?.message || mapDataRes.error?.message));
         }
 
         announcements = announcementsRes.data || [];
@@ -51,45 +65,267 @@ async function loadData(forceRefresh = false) {
         console.log("✅ Admin data loaded from Supabase!");
         updateConnectionStatus(true);
         
+        // Save to local storage as backup
+        saveToLocalStorage();
+        
     } catch (error) {
         console.error('❌ Supabase Error:', error);
         updateConnectionStatus(false);
-        // Fallback logic would go here (same as EndUser.js)
+        console.log('🔄 Falling back to Google Sheets...');
+        await loadFromGoogleSheets();
     }
 }
 
-async function addAnnouncement(title, content, type, priority) {
-    const newAnnouncement = {
-        title,
-        content,
-        type: type || 'info',
-        date: new Date().toISOString().split('T')[0],
-        author: 'Admin',
-        priority: priority || 'medium'
+// Google Sheets fallback
+async function loadFromGoogleSheets() {
+    try {
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        if (!announcementsRes.ok || !reportsRes.ok || !mapDataRes.ok) {
+            throw new Error('Google Sheets also failed');
+        }
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Convert sheet data to objects
+        announcements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6],
+            created_at: row[4] // Use date as created_at for fallback
+        }));
+
+        userReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incident_type: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            admin_notes: row[8],
+            created_at: row[4]
+        }));
+
+        mapData = (mapDataResponse.values || []).map(row => ({
+            id: row[0],
+            report_id: row[1],
+            latitude: parseFloat(row[2]),
+            longitude: parseFloat(row[3]),
+            type: row[4],
+            status: row[5],
+            timestamp: row[6],
+            created_at: row[6]
+        }));
+
+        console.log("✅ Data loaded from Google Sheets fallback!");
+        saveToLocalStorage();
+        
+    } catch (sheetsError) {
+        console.error('❌ Google Sheets Error:', sheetsError);
+        console.log('🔄 Using local storage data...');
+        loadFromLocalStorage();
+    }
+}
+
+// Enhanced addAnnouncement function with full form fields
+async function addAnnouncement(title, content, type, date, author, priority) {
+    // Validate and sanitize all inputs with proper null checking
+    const sanitizedAnnouncement = {
+        title: (title || '').toString().trim(),
+        content: (content || '').toString().trim(),
+        type: (type || 'info').toString().trim(),
+        date: (date || new Date().toISOString().split('T')[0]).toString().trim(),
+        author: (author || 'Admin').toString().trim(),
+        priority: (priority || 'medium').toString().trim(),
+        created_at: new Date().toISOString()
     };
 
+    // Validate required fields
+    if (!sanitizedAnnouncement.title || !sanitizedAnnouncement.content) {
+        showNotification('Title and content are required fields.', 'error');
+        throw new Error('Missing required fields');
+    }
+
+    console.log("📤 Attempting to save announcement:", sanitizedAnnouncement);
+
     try {
-        // Add locally first
-        announcements.unshift(newAnnouncement);
-        
-        // Sync to Supabase
+        // Try Supabase first - don't include ID, let Supabase generate it
         const { data, error } = await supabase
             .from('announcements')
-            .insert([newAnnouncement]);
+            .insert([{
+                title: sanitizedAnnouncement.title,
+                content: sanitizedAnnouncement.content,
+                type: sanitizedAnnouncement.type,
+                date: sanitizedAnnouncement.date,
+                author: sanitizedAnnouncement.author,
+                priority: sanitizedAnnouncement.priority,
+                created_at: sanitizedAnnouncement.created_at
+            }])
+            .select();
 
-        if (error) throw error;
+        if (error) {
+            console.error('❌ Supabase insert error:', error);
+            
+            // Check for specific error types
+            if (error.code === '23505') { // Unique violation
+                throw new Error('Duplicate entry - this announcement already exists');
+            } else if (error.code === '42501') { // Permission denied
+                throw new Error('Permission denied - check your RLS policies');
+            } else if (error.code === '42703') { // Column doesn't exist
+                throw new Error('Column does not exist - check your table schema');
+            } else {
+                throw new Error(`Database error: ${error.message}`);
+            }
+        }
 
+        // Success - use the data returned from Supabase
+        const savedAnnouncement = data[0];
+        console.log("✅ Announcement saved to Supabase:", savedAnnouncement);
+        
+        // Add to local array with the returned ID
+        announcements.unshift(savedAnnouncement);
+        
         showNotification('Announcement published successfully!', 'success');
         render();
-        return newAnnouncement;
+        return savedAnnouncement;
 
     } catch (error) {
-        console.error('Error saving announcement:', error);
-        addPendingSync('addAnnouncement', newAnnouncement);
-        showNotification('Announcement saved locally (will sync when online)', 'warning');
-        render();
-        return newAnnouncement;
+        console.error('❌ Error saving announcement to Supabase:', error);
+        
+        // Generate a temporary ID for fallback
+        const tempId = 'temp-' + Date.now();
+        const fallbackAnnouncement = {
+            ...sanitizedAnnouncement,
+            id: tempId
+        };
+        
+        try {
+            await saveAnnouncementToGoogleSheets(fallbackAnnouncement);
+            announcements.unshift(fallbackAnnouncement);
+            showNotification('Announcement saved to Google Sheets (Supabase: ' + error.message + ')', 'warning');
+            render();
+            return fallbackAnnouncement;
+        } catch (sheetsError) {
+            console.error('❌ Google Sheets also failed:', sheetsError);
+            // Final fallback to local storage
+            addPendingSync('addAnnouncement', fallbackAnnouncement);
+            announcements.unshift(fallbackAnnouncement);
+            saveToLocalStorage();
+            showNotification('Announcement saved locally (will sync when online)', 'warning');
+            render();
+            return fallbackAnnouncement;
+        }
     }
+}
+
+// Google Sheets fallback for announcements
+async function saveAnnouncementToGoogleSheets(announcement) {
+    const params = new URLSearchParams({
+        action: 'addAnnouncement',
+        title: announcement.title,
+        content: announcement.content,
+        type: announcement.type,
+        date: announcement.date,
+        author: announcement.author,
+        priority: announcement.priority
+    });
+
+    const url = `${APPS_SCRIPT_URL}?${params}`;
+    const response = await fetch(url, { method: 'GET' });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+    }
+}
+
+// Enhanced announcement form handler
+function handleAnnouncementSubmit(e) {
+    e.preventDefault();
+    
+    // Get form values with proper null checking
+    const title = document.getElementById('announcementTitle')?.value || '';
+    const content = document.getElementById('announcementContent')?.value || '';
+    const type = document.getElementById('announcementType')?.value || 'info';
+    const date = document.getElementById('announcementDate')?.value || new Date().toISOString().split('T')[0];
+    const author = document.getElementById('announcementAuthor')?.value || 'Admin';
+    const priority = document.getElementById('announcementPriority')?.value || 'medium';
+    
+    // Validate required fields
+    if (!title.trim() || !content.trim()) {
+        showNotification('Please fill in all required fields (Title and Content).', 'error');
+        return;
+    }
+    
+    // Validate date format
+    if (!isValidDate(date)) {
+        showNotification('Please enter a valid date.', 'error');
+        return;
+    }
+    
+    addAnnouncement(title, content, type, date, author, priority);
+    document.getElementById('announcementForm').reset();
+}
+
+// Add date validation helper function
+function isValidDate(dateString) {
+    const regex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateString.match(regex)) return false;
+    
+    const date = new Date(dateString);
+    const timestamp = date.getTime();
+    return !isNaN(timestamp);
+}
+
+// Test Supabase connection
+async function testSupabaseConnection() {
+    try {
+        showNotification('Testing Supabase connection...', 'info');
+        const { data, error } = await supabase.from('announcements').select('count').limit(1);
+        
+        if (error) throw error;
+        
+        updateConnectionStatus(true);
+        showNotification('Supabase connection successful!', 'success');
+    } catch (error) {
+        console.error('Supabase connection test failed:', error);
+        updateConnectionStatus(false);
+        showNotification('Supabase connection failed. Using fallback data.', 'error');
+    }
+}
+
+// Initialize with connection test
+async function initializeAdminPage() {
+    // Test connection first
+    await testSupabaseConnection();
+    
+    // Load data
+    await loadData();
+
+    // Test Apps Script connection
+    await testAppsScript();
+    
+    // Then render
+    render();
+    
+    // Close sidebar when clicking on overlay
+    document.querySelector('.sidebar-overlay').addEventListener('click', closeSidebar);
 }
 
 // Add this function to fix the missing reference
@@ -382,20 +618,32 @@ function closeSidebar() {
     document.querySelector('.sidebar-overlay').classList.remove('active');
 }
 
-function showNotification(message, type) {
+function showNotification(message, type, details = null) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
+    
+    let detailsHtml = '';
+    if (details) {
+        detailsHtml = `<div class="error-details" style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">${details}</div>`;
+    }
+    
     notification.innerHTML = `
-        <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
-        <span>${message}</span>
+        <div class="flex items-center">
+            <i class="fas ${
+                type === 'success' ? 'fa-check-circle' : 
+                type === 'warning' ? 'fa-exclamation-triangle' : 
+                'fa-exclamation-circle'
+            } mr-2"></i>
+            <span>${message}</span>
+        </div>
+        ${detailsHtml}
     `;
     
     document.body.appendChild(notification);
     
-    // Remove notification after 5 seconds
     setTimeout(() => {
         notification.remove();
-    }, 5000);
+    }, 6000);
 }
 
 function getCurrentLocation() {
@@ -494,12 +742,19 @@ function render() {
 function renderHome() {
     const main = document.createElement('div');
     main.innerHTML = `
-
-
-         <div class="mb-8">
+        <div class="mb-8">
             <h2 class="text-2xl font-bold text-gray-900">Administrative Dashboard</h2>
             <p class="text-gray-600">Manage system settings, user reports, and community announcements</p>
+            <div class="flex items-center gap-4 mt-2">
+                <div id="supabaseStatus" class="text-sm font-medium">
+                    <span style="color: #6B7280;"><i class="fas fa-sync-alt fa-spin"></i> Checking connection...</span>
+                </div>
+                <button onclick="testSupabaseConnection()" class="text-sm text-blue-600 hover:text-blue-800">
+                    <i class="fas fa-sync-alt mr-1"></i>Test Connection
+                </button>
+            </div>
         </div>
+
         <div class="mb-8">
             <h2 class="text-2xl font-bold text-gray-900">Community Safety Dashboard</h2>
             <p class="text-gray-600">Welcome back, Admin! Here's the latest from your area.</p>
@@ -606,33 +861,76 @@ function renderHome() {
                 </table>
             </div>
 
-            <div class="admin-section">
-                <h3 class="admin-section-title">System Announcements</h3>
-                <form class="announcement-form" id="announcementForm">
+             <div class="admin-section">
+            <h3 class="admin-section-title">System Announcements</h3>
+            <form class="announcement-form" id="announcementForm">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="form-label">Announcement Title</label>
+                        <label class="form-label">Announcement Title *</label>
                         <input type="text" class="form-input" id="announcementTitle" required>
                     </div>
                     <div>
-                        <label class="form-label">Announcement Content</label>
-                        <textarea class="form-textarea" id="announcementContent" required></textarea>
+                        <label class="form-label">Type *</label>
+                        <select class="form-input" id="announcementType" required>
+                            <option value="info">Information</option>
+                            <option value="alert">Alert</option>
+                            <option value="warning">Warning</option>
+                            <option value="emergency">Emergency</option>
+                            <option value="update">Update</option>
+                        </select>
                     </div>
-                    <button type="submit" class="btn btn-primary">Publish Announcement</button>
-                </form>
+                </div>
                 
-                <h4 class="text-lg font-semibold mb-4">Recent Announcements</h4>
-                <div class="announcements-list">
-                    ${announcements.map(announcement => `
-                        <div class="announcement-item">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="form-label">Date *</label>
+                        <input type="date" class="form-input" id="announcementDate" value="${new Date().toISOString().split('T')[0]}" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Author *</label>
+                        <input type="text" class="form-input" id="announcementAuthor" value="Admin" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Priority *</label>
+                        <select class="form-input" id="announcementPriority" required>
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label">Content *</label>
+                    <textarea class="form-textarea" id="announcementContent" rows="4" required placeholder="Enter announcement content..."></textarea>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-paper-plane mr-2"></i>
+                    Publish Announcement
+                </button>
+            </form>
+            
+            <h4 class="text-lg font-semibold mt-8 mb-4">Recent Announcements</h4>
+            <div class="announcements-list">
+                ${announcements.map(announcement => `
+                    <div class="announcement-item ${announcement.priority === 'high' || announcement.priority === 'critical' ? 'announcement-high-priority' : ''}">
+                        <div class="announcement-header">
                             <div class="announcement-title">${announcement.title}</div>
-                            <div class="announcement-content">${announcement.content}</div>
                             <div class="announcement-meta">
-                                <span>By: ${announcement.author}</span>
-                                <span>${announcement.date}</span>
+                                <span class="announcement-type announcement-type-${announcement.type}">${announcement.type}</span>
+                                <span class="announcement-priority announcement-priority-${announcement.priority}">${announcement.priority}</span>
                             </div>
                         </div>
-                    `).join('')}
-                </div>
+                        <div class="announcement-content">${announcement.content}</div>
+                        <div class="announcement-footer">
+                            <span>By: ${announcement.author}</span>
+                            <span>${announcement.date}</span>
+                            ${announcement.created_at ? `<span class="text-xs text-gray-500">${new Date(announcement.created_at).toLocaleString()}</span>` : ''}
+                        </div>
+                    </div>
+                `).join('')}
             </div>
         </div>
 
@@ -2482,3 +2780,93 @@ async function initializeAdminPage() {
     // Start auto-refresh
     startAutoRefresh();
 }
+
+// Add this function to debug your Supabase setup
+async function debugSupabaseSetup() {
+    try {
+        console.log("🔍 Debugging Supabase setup...");
+        
+        // Test basic connection
+        const { data: testData, error: testError } = await supabase
+            .from('announcements')
+            .select('*')
+            .limit(1);
+            
+        if (testError) {
+            console.error('❌ Basic query failed:', testError);
+            return;
+        }
+        
+        console.log("✅ Basic connection works");
+        
+        // Check table structure
+        const { data: tableInfo, error: tableError } = await supabase
+            .from('announcements')
+            .select('*')
+            .limit(0);
+            
+        if (!tableError) {
+            console.log("📋 Table columns should be:", Object.keys(tableInfo || {}));
+        }
+        
+    } catch (error) {
+        console.error('❌ Debug failed:', error);
+    }
+}
+
+// Call this during initialization
+debugSupabaseSetup();
+
+async function testAnnouncementCreation() {
+    console.log("🧪 Testing announcement creation...");
+    
+    // Test with minimal data
+    const testData = {
+        title: 'Test Announcement',
+        content: 'This is a test announcement',
+        type: 'info',
+        date: new Date().toISOString().split('T')[0],
+        author: 'Test Admin',
+        priority: 'medium'
+    };
+    
+    try {
+        const result = await addAnnouncement(
+            testData.title,
+            testData.content, 
+            testData.type,
+            testData.date,
+            testData.author,
+            testData.priority
+        );
+        console.log("✅ Test announcement result:", result);
+    } catch (error) {
+        console.error("❌ Test announcement failed:", error);
+    }
+}
+
+// Call this to test
+// testAnnouncementCreation();
+
+function debugFormFields() {
+    const fields = [
+        'announcementTitle',
+        'announcementContent', 
+        'announcementType',
+        'announcementDate',
+        'announcementAuthor',
+        'announcementPriority'
+    ];
+    
+    fields.forEach(fieldId => {
+        const element = document.getElementById(fieldId);
+        console.log(`${fieldId}:`, {
+            exists: !!element,
+            value: element?.value,
+            type: element?.type
+        });
+    });
+}
+
+// Call this after your form is rendered to check the fields
+//setTimeout(debugFormFields, 1000);

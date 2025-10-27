@@ -33,13 +33,14 @@ let mapData = [];
 // === DATA MANAGEMENT SYSTEM ===
 
 // Load data with fallback system
+// Enhanced loadData function for EndUser
 async function loadData() {
     try {
         console.log("🔄 Attempting to load data from Supabase...");
         
         // Try Supabase first
         const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
-            supabase.from('announcements').select('*').order('id', { ascending: false }),
+            supabase.from('announcements').select('*').order('created_at', { ascending: false }),
             supabase.from('user_reports').select('*').order('created_at', { ascending: false }),
             supabase.from('map_data').select('*')
         ]);
@@ -90,7 +91,8 @@ async function loadData() {
                 type: row[3],
                 date: row[4],
                 author: row[5],
-                priority: row[6]
+                priority: row[6],
+                created_at: row[4]
             }));
 
             userReports = (reportsData.values || []).map(row => ({
@@ -102,16 +104,19 @@ async function loadData() {
                 status: row[5],
                 anonymous: row[6] === 'true',
                 contact: row[7],
-                admin_notes: row[8]
+                admin_notes: row[8],
+                created_at: row[4]
             }));
 
             mapData = (mapDataResponse.values || []).map(row => ({
-                report_id: row[0],
-                latitude: parseFloat(row[1]),
-                longitude: parseFloat(row[2]),
-                type: row[3],
-                status: row[4],
-                timestamp: row[5]
+                id: row[0],
+                report_id: row[1],
+                latitude: parseFloat(row[2]),
+                longitude: parseFloat(row[3]),
+                type: row[4],
+                status: row[5],
+                timestamp: row[6],
+                created_at: row[6]
             }));
 
             console.log("✅ Data loaded from Google Sheets fallback!");
@@ -212,33 +217,35 @@ async function processPendingSync() {
 
 // === USER REPORTS WITH SYNC ===
 
+// Enhanced user report submission with Supabase priority
 async function addUserReport(incidentType, location, description, anonymous = false, contact = '', coordinates = null) {
     const newReport = {
-        id: 'UR-' + Date.now(),
         incident_type: incidentType,
         location: location,
         description: description,
-        timestamp: new Date().toLocaleString(),
+        timestamp: new Date().toISOString(),
         status: 'pending',
         anonymous: anonymous,
         contact: contact,
-        admin_notes: ''
+        admin_notes: '',
+        created_at: new Date().toISOString()
     };
 
     try {
-        // Add to local storage immediately for fast UI response
-        userReports.unshift(newReport);
-        saveToLocalStorage();
-        
-        // Try to sync with Supabase
+        // Try Supabase first
         const { data, error } = await supabase
             .from('user_reports')
-            .insert([newReport]);
+            .insert([newReport])
+            .select();
 
         if (error) throw error;
 
+        // Add to local array with the returned ID
+        newReport.id = data[0].id;
+        userReports.unshift(newReport);
+        
         console.log('✅ Report saved to Supabase');
-        showNotification('Report submitted successfully!', 'success');
+        showNotification('Report submitted successfully to Supabase!', 'success');
         
         // Update UI
         renderUserReportHistory();
@@ -248,14 +255,23 @@ async function addUserReport(incidentType, location, description, anonymous = fa
     } catch (error) {
         console.error('❌ Supabase Error:', error);
         
-        // Add to pending sync for retry later
-        addPendingSync('addUserReport', newReport);
-        showNotification('Report saved locally (will sync when online)', 'warning');
-        
-        // Update UI with local data
-        renderUserReportHistory();
-        
-        return newReport;
+        // Fallback to Google Sheets
+        try {
+            const result = await saveUserReportToGoogleSheets(newReport);
+            userReports.unshift(newReport);
+            showNotification('Report saved to Google Sheets (Supabase offline)', 'warning');
+            renderUserReportHistory();
+            return newReport;
+        } catch (sheetsError) {
+            console.error('Google Sheets also failed:', sheetsError);
+            // Final fallback to local storage
+            addPendingSync('addUserReport', newReport);
+            userReports.unshift(newReport);
+            saveToLocalStorage();
+            showNotification('Report saved locally (will sync when online)', 'warning');
+            renderUserReportHistory();
+            return newReport;
+        }
     }
 }
 
