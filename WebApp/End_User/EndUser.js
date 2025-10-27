@@ -3,6 +3,11 @@
 const SHEET_ID = '1Gpj_0729wCx9mgg0NS7OY9J_hnkzOCuwfNR7J6-pw6c';
 const API_KEY = 'AIzaSyD6pyc_Aze3RK_CjSg7kgOZe0ks471ZUgk';
 
+// === SUPABASE CONFIGURATION ===
+const SUPABASE_URL = 'https://cnptukavcjqbczlzihjv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucHR1a2F2Y2pxYmN6bHppaGp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0OTMzODIsImV4cCI6MjA3NDA2OTM4Mn0.1l_E9OI8pKZpIA4f7arbWIl0h0WnZXGFq71Fn_vyQ04';
+
+
 // Google Sheets URLs
 const ANNOUNCEMENTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G?key=${API_KEY}`;
 const USER_REPORTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A2:I?key=${API_KEY}`;
@@ -11,74 +16,261 @@ const MAP_DATA_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/
 // === GOOGLE APPS SCRIPT CONFIGURATION ===
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCICo14JQb7mysnxBbf3_j8mejStLjTrgKg0GddoFeVIxIgTPwlnOFeFlA/exec";
 
+// === SUPABASE CLIENT INITIALIZATION ===
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// === LOCAL STORAGE KEYS ===
+const LOCAL_ANNOUNCEMENTS_KEY = 'notizar_announcements';
+const LOCAL_USER_REPORTS_KEY = 'notizar_user_reports';
+const LOCAL_MAP_DATA_KEY = 'notizar_map_data';
+const PENDING_SYNC_KEY = 'notizar_pending_sync';
+
 // Global data arrays
 let announcements = [];
 let userReports = [];
 let mapData = [];
 
-// Load data from Google Sheets
+// === DATA MANAGEMENT SYSTEM ===
+
+// Load data with fallback system
 async function loadData() {
     try {
-        console.log("Loading data from Google Sheets...");
+        console.log("🔄 Attempting to load data from Supabase...");
         
+        // Try Supabase first
         const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
-            fetch(ANNOUNCEMENTS_URL),
-            fetch(USER_REPORTS_URL),
-            fetch(MAP_DATA_URL)
+            supabase.from('announcements').select('*').order('id', { ascending: false }),
+            supabase.from('user_reports').select('*').order('created_at', { ascending: false }),
+            supabase.from('map_data').select('*')
         ]);
 
-        // Check if responses are OK
-        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
-        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
-        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+        // Check for Supabase errors
+        if (announcementsRes.error || reportsRes.error || mapDataRes.error) {
+            throw new Error('Supabase error');
+        }
 
-        const announcementsData = await announcementsRes.json();
-        const reportsData = await reportsRes.json();
-        const mapDataResponse = await mapDataRes.json();
+        // Process Supabase data
+        announcements = announcementsRes.data || [];
+        userReports = reportsRes.data || [];
+        mapData = mapDataRes.data || [];
 
-        // Convert sheet data to objects
-        announcements = (announcementsData.values || []).map(row => ({
-            id: parseInt(row[0]),
-            title: row[1],
-            content: row[2],
-            type: row[3],
-            date: row[4],
-            author: row[5],
-            priority: row[6]
-        }));
-
-        userReports = (reportsData.values || []).map(row => ({
-            id: row[0],
-            incidentType: row[1],
-            location: row[2],
-            description: row[3],
-            timestamp: row[4],
-            status: row[5],
-            anonymous: row[6] === 'true',
-            contact: row[7],
-            adminNotes: row[8]
-        }));
-
-        mapData = (mapDataResponse.values || []).map(row => ({
-            reportId: row[0],
-            latitude: parseFloat(row[1]),
-            longitude: parseFloat(row[2]),
-            type: row[3],
-            status: row[4],
-            timestamp: row[5]
-        }));
-
-        console.log("✅ User data loaded successfully from Google Sheets!");
+        console.log("✅ Data loaded successfully from Supabase!");
         
-        // Render announcements for users
-        renderUserAnnouncements();
+        // Save to local storage as backup
+        saveToLocalStorage();
         
-    } catch (error) {
-        console.error('❌ Google Sheets Error:', error);
-        console.log('🔄 Using fallback data...');
+        // Process any pending sync actions
+        await processPendingSync();
+        
+    } catch (supabaseError) {
+        console.error('❌ Supabase Error:', supabaseError);
+        console.log('🔄 Falling back to Google Sheets...');
+        
+        try {
+            // Fallback to Google Sheets
+            const [announcementsGs, reportsGs, mapDataGs] = await Promise.all([
+                fetch(ANNOUNCEMENTS_URL),
+                fetch(USER_REPORTS_URL),
+                fetch(MAP_DATA_URL)
+            ]);
+
+            if (!announcementsGs.ok || !reportsGs.ok || !mapDataGs.ok) {
+                throw new Error('Google Sheets also failed');
+            }
+
+            const announcementsData = await announcementsGs.json();
+            const reportsData = await reportsGs.json();
+            const mapDataResponse = await mapDataGs.json();
+
+            // Convert sheet data to objects
+            announcements = (announcementsData.values || []).map(row => ({
+                id: parseInt(row[0]),
+                title: row[1],
+                content: row[2],
+                type: row[3],
+                date: row[4],
+                author: row[5],
+                priority: row[6]
+            }));
+
+            userReports = (reportsData.values || []).map(row => ({
+                id: row[0],
+                incident_type: row[1],
+                location: row[2],
+                description: row[3],
+                timestamp: row[4],
+                status: row[5],
+                anonymous: row[6] === 'true',
+                contact: row[7],
+                admin_notes: row[8]
+            }));
+
+            mapData = (mapDataResponse.values || []).map(row => ({
+                report_id: row[0],
+                latitude: parseFloat(row[1]),
+                longitude: parseFloat(row[2]),
+                type: row[3],
+                status: row[4],
+                timestamp: row[5]
+            }));
+
+            console.log("✅ Data loaded from Google Sheets fallback!");
+            saveToLocalStorage();
+            
+        } catch (sheetsError) {
+            console.error('❌ Google Sheets Error:', sheetsError);
+            console.log('🔄 Using local storage data...');
+            loadFromLocalStorage();
+        }
+    }
+
+    // Update UI
+    renderUserAnnouncements();
+    renderUserReportHistory();
+}
+
+// === LOCAL STORAGE MANAGEMENT ===
+
+function saveToLocalStorage() {
+    try {
+        localStorage.setItem(LOCAL_ANNOUNCEMENTS_KEY, JSON.stringify(announcements));
+        localStorage.setItem(LOCAL_USER_REPORTS_KEY, JSON.stringify(userReports));
+        localStorage.setItem(LOCAL_MAP_DATA_KEY, JSON.stringify(mapData));
+    } catch (e) {
+        console.error('Error saving to local storage:', e);
+    }
+}
+
+function loadFromLocalStorage() {
+    try {
+        const storedAnnouncements = localStorage.getItem(LOCAL_ANNOUNCEMENTS_KEY);
+        const storedReports = localStorage.getItem(LOCAL_USER_REPORTS_KEY);
+        const storedMapData = localStorage.getItem(LOCAL_MAP_DATA_KEY);
+        
+        announcements = storedAnnouncements ? JSON.parse(storedAnnouncements) : [];
+        userReports = storedReports ? JSON.parse(storedReports) : [];
+        mapData = storedMapData ? JSON.parse(storedMapData) : [];
+        
+        console.log("📦 Loaded data from local storage");
+    } catch (e) {
+        console.error('Error loading from local storage:', e);
         loadFallbackData();
     }
 }
+
+function addPendingSync(action, data) {
+    try {
+        const pending = getPendingSync();
+        pending.push({
+            action,
+            data,
+            timestamp: Date.now()
+        });
+        localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pending));
+    } catch (e) {
+        console.error('Error adding pending sync:', e);
+    }
+}
+
+function getPendingSync() {
+    try {
+        const pending = localStorage.getItem(PENDING_SYNC_KEY);
+        return pending ? JSON.parse(pending) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+async function processPendingSync() {
+    const pending = getPendingSync();
+    if (pending.length === 0) return;
+
+    console.log(`🔄 Processing ${pending.length} pending sync actions`);
+    
+    for (let i = pending.length - 1; i >= 0; i--) {
+        const item = pending[i];
+        try {
+            switch (item.action) {
+                case 'addUserReport':
+                    await syncUserReportToSupabase(item.data);
+                    break;
+                case 'addAnnouncement':
+                    await syncAnnouncementToSupabase(item.data);
+                    break;
+                case 'updateReportStatus':
+                    await syncReportStatusToSupabase(item.data);
+                    break;
+            }
+            // Remove from pending if successful
+            pending.splice(i, 1);
+            localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pending));
+        } catch (error) {
+            console.error('Failed to sync pending action:', error);
+        }
+    }
+}
+
+// === USER REPORTS WITH SYNC ===
+
+async function addUserReport(incidentType, location, description, anonymous = false, contact = '', coordinates = null) {
+    const newReport = {
+        id: 'UR-' + Date.now(),
+        incident_type: incidentType,
+        location: location,
+        description: description,
+        timestamp: new Date().toLocaleString(),
+        status: 'pending',
+        anonymous: anonymous,
+        contact: contact,
+        admin_notes: ''
+    };
+
+    try {
+        // Add to local storage immediately for fast UI response
+        userReports.unshift(newReport);
+        saveToLocalStorage();
+        
+        // Try to sync with Supabase
+        const { data, error } = await supabase
+            .from('user_reports')
+            .insert([newReport]);
+
+        if (error) throw error;
+
+        console.log('✅ Report saved to Supabase');
+        showNotification('Report submitted successfully!', 'success');
+        
+        // Update UI
+        renderUserReportHistory();
+        
+        return newReport;
+
+    } catch (error) {
+        console.error('❌ Supabase Error:', error);
+        
+        // Add to pending sync for retry later
+        addPendingSync('addUserReport', newReport);
+        showNotification('Report saved locally (will sync when online)', 'warning');
+        
+        // Update UI with local data
+        renderUserReportHistory();
+        
+        return newReport;
+    }
+}
+
+async function syncUserReportToSupabase(report) {
+    const { data, error } = await supabase
+        .from('user_reports')
+        .insert([report]);
+
+    if (error) throw error;
+    return data;
+}
+
+// KEEP ALL YOUR EXISTING FUNCTIONS BELOW THIS LINE
+// (renderUserAnnouncements, renderUserReportHistory, showNotification, etc.)
+// They should work with the new data structure
 
 // Fallback demo data
 function loadFallbackData() {
@@ -96,71 +288,6 @@ function loadFallbackData() {
     
     userReports = [];
     mapData = [];
-}
-
-// === APPS SCRIPT INTEGRATION FOR USER REPORTS ===
-async function addUserReport(incidentType, location, description, anonymous = false, contact = '', coordinates = null) {
-    const newReport = {
-        id: 'UR-' + Date.now(),
-        incidentType,
-        location,
-        description,
-        timestamp: new Date().toLocaleString(),
-        status: 'pending',
-        anonymous: anonymous ? 'true' : 'false',
-        contact,
-        adminNotes: '',
-        latitude: coordinates ? coordinates.lat : '',
-        longitude: coordinates ? coordinates.lng : ''
-    };
-
-    try {
-        const params = new URLSearchParams({
-            action: 'addUserReport',
-            id: newReport.id,
-            incidentType: newReport.incidentType,
-            location: newReport.location,
-            description: newReport.description,
-            timestamp: newReport.timestamp,
-            status: newReport.status,
-            anonymous: newReport.anonymous,
-            contact: newReport.contact,
-            adminNotes: newReport.adminNotes,
-            latitude: newReport.latitude,
-            longitude: newReport.longitude
-        });
-
-        const url = `${APPS_SCRIPT_URL}?${params}`;
-        
-        console.log('Sending user report to Apps Script:', url);
-        
-        const response = await fetch(url, { method: 'GET' });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-            userReports.unshift(newReport);
-            showNotification('Report submitted successfully! Authorities have been notified.', 'success');
-            
-            // Update user's report history
-            renderUserReportHistory();
-            
-            return newReport;
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
-
-    } catch (error) {
-        console.error('Error saving report to Apps Script:', error);
-        // Fallback to local storage
-        userReports.unshift(newReport);
-        showNotification('Report saved locally (connection issue)', 'warning');
-        return newReport;
-    }
 }
 
 // === USER ANNOUNCEMENTS SYSTEM ===

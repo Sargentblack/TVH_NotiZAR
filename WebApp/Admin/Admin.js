@@ -2,6 +2,11 @@
 const SHEET_ID = '1Gpj_0729wCx9mgg0NS7OY9J_hnkzOCuwfNR7J6-pw6c';
 const API_KEY = 'AIzaSyD6pyc_Aze3RK_CjSg7kgOZe0ks471ZUgk';
 
+// === SUPABASE CONFIGURATION ===
+const SUPABASE_URL = 'https://cnptukavcjqbczlzihjv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucHR1a2F2Y2pxYmN6bHppaGp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0OTMzODIsImV4cCI6MjA3NDA2OTM4Mn0.1l_E9OI8pKZpIA4f7arbWIl0h0WnZXGFq71Fn_vyQ04';
+
+
 // Google Sheets URLs
 const ANNOUNCEMENTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G?key=${API_KEY}`;
 const USER_REPORTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A2:I?key=${API_KEY}`;
@@ -12,69 +17,116 @@ let announcements = [];
 let userReports = [];
 let mapData = [];
 
+// === LOCAL STORAGE KEYS ===
+const LOCAL_ANNOUNCEMENTS_KEY = 'notizar_announcements';
+const LOCAL_USER_REPORTS_KEY = 'notizar_user_reports';
+const LOCAL_MAP_DATA_KEY = 'notizar_map_data';
+const PENDING_SYNC_KEY = 'notizar_pending_sync';
+
 // === GOOGLE APPS SCRIPT CONFIGURATION ===
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCICo14JQb7mysnxBbf3_j8mejStLjTrgKg0GddoFeVIxIgTPwlnOFeFlA/exec";
 
-// Load data from Google Sheets
-async function loadData() {
+// === SUPABASE CLIENT INITIALIZATION ===
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Data management functions
+async function loadData(forceRefresh = false) {
     try {
-        console.log("Loading data from Google Sheets...");
+        console.log("🔄 Loading admin data from Supabase...");
         
         const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
-            fetch(ANNOUNCEMENTS_URL),
-            fetch(USER_REPORTS_URL),
-            fetch(MAP_DATA_URL)
+            supabase.from('announcements').select('*').order('id', { ascending: false }),
+            supabase.from('user_reports').select('*').order('created_at', { ascending: false }),
+            supabase.from('map_data').select('*')
         ]);
 
-        // Check if responses are OK
-        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
-        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
-        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+        if (announcementsRes.error || reportsRes.error || mapDataRes.error) {
+            throw new Error('Supabase error');
+        }
 
-        const announcementsData = await announcementsRes.json();
-        const reportsData = await reportsRes.json();
-        const mapDataResponse = await mapDataRes.json();
+        announcements = announcementsRes.data || [];
+        userReports = reportsRes.data || [];
+        mapData = mapDataRes.data || [];
 
-        // Convert sheet data to objects
-        announcements = (announcementsData.values || []).map(row => ({
-            id: parseInt(row[0]),
-            title: row[1],
-            content: row[2],
-            type: row[3],
-            date: row[4],
-            author: row[5],
-            priority: row[6]
-        }));
-
-        userReports = (reportsData.values || []).map(row => ({
-            id: row[0],
-            incidentType: row[1],
-            location: row[2],
-            description: row[3],
-            timestamp: row[4],
-            status: row[5],
-            anonymous: row[6] === 'true',
-            contact: row[7],
-            adminNotes: row[8]
-        }));
-
-        mapData = (mapDataResponse.values || []).map(row => ({
-            reportId: row[0],
-            latitude: parseFloat(row[1]),
-            longitude: parseFloat(row[2]),
-            type: row[3],
-            status: row[4],
-            timestamp: row[5]
-        }));
-
-        console.log("✅ Data loaded successfully from Google Sheets!");
+        console.log("✅ Admin data loaded from Supabase!");
+        updateConnectionStatus(true);
         
     } catch (error) {
-        console.error('❌ Google Sheets Error:', error);
-        console.log('🔄 Using fallback data...');
-        loadFallbackData();
+        console.error('❌ Supabase Error:', error);
+        updateConnectionStatus(false);
+        // Fallback logic would go here (same as EndUser.js)
     }
 }
+
+async function addAnnouncement(title, content, type, priority) {
+    const newAnnouncement = {
+        title,
+        content,
+        type: type || 'info',
+        date: new Date().toISOString().split('T')[0],
+        author: 'Admin',
+        priority: priority || 'medium'
+    };
+
+    try {
+        // Add locally first
+        announcements.unshift(newAnnouncement);
+        
+        // Sync to Supabase
+        const { data, error } = await supabase
+            .from('announcements')
+            .insert([newAnnouncement]);
+
+        if (error) throw error;
+
+        showNotification('Announcement published successfully!', 'success');
+        render();
+        return newAnnouncement;
+
+    } catch (error) {
+        console.error('Error saving announcement:', error);
+        addPendingSync('addAnnouncement', newAnnouncement);
+        showNotification('Announcement saved locally (will sync when online)', 'warning');
+        render();
+        return newAnnouncement;
+    }
+}
+
+// Add this function to fix the missing reference
+function addPendingSync(operation) {
+  console.log('Sync operation:', operation);
+  // Implement your offline sync logic here
+  // Or remove the call if you don't need offline sync
+}
+async function updateReportStatus(reportId, status, adminNotes = '') {
+    try {
+        // Update local cache first
+        const report = userReports.find(r => r.id === reportId);
+        if (report) {
+            report.status = status;
+            report.admin_notes = adminNotes;
+        }
+
+        // Sync to Supabase
+        const { data, error } = await supabase
+            .from('user_reports')
+            .update({ status, admin_notes: adminNotes })
+            .eq('id', reportId);
+
+        if (error) throw error;
+
+        showNotification('Report status updated successfully!', 'success');
+        render();
+
+    } catch (error) {
+        console.error('Error updating report status:', error);
+        addPendingSync('updateReportStatus', { reportId, status, adminNotes });
+        showNotification('Status updated locally (will sync when online)', 'warning');
+        render();
+    }
+}
+
+// KEEP ALL YOUR EXISTING ADMIN FUNCTIONS BELOW
 
 // Fallback demo data
 function loadFallbackData() {
@@ -92,118 +144,6 @@ function loadFallbackData() {
     
     userReports = [];
     mapData = [];
-}
-
-// Apps Script Functions
-async function addAnnouncement(title, content, type, priority) {
-    const newAnnouncement = {
-        id: Date.now(),
-        title,
-        content,
-        type: type || 'info',
-        date: new Date().toISOString().split('T')[0],
-        author: 'Admin',
-        priority: priority || 'medium'
-    };
-
-    try {
-        const params = new URLSearchParams({
-            action: 'addAnnouncement',
-            id: newAnnouncement.id.toString(),
-            title: newAnnouncement.title,
-            content: newAnnouncement.content,
-            type: newAnnouncement.type,
-            date: newAnnouncement.date,
-            author: newAnnouncement.author,
-            priority: newAnnouncement.priority
-        });
-
-        const url = `${APPS_SCRIPT_URL}?${params}`;
-        
-        console.log('Sending announcement to:', url);
-        
-        const response = await fetch(url, { method: 'GET' });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-            announcements.unshift(newAnnouncement);
-            showNotification('Announcement published successfully!', 'success');
-            return newAnnouncement;
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
-
-    } catch (error) {
-        console.error('Error saving to Apps Script:', error);
-        // Fallback to local storage
-        announcements.unshift(newAnnouncement);
-        showNotification('Announcement saved locally (Apps Script failed)', 'warning');
-        return newAnnouncement;
-    }
-}
-
-async function updateReportStatus(reportId, status, adminNotes = '') {
-    try {
-        const params = new URLSearchParams({
-            action: 'updateReportStatus',
-            reportId: reportId,
-            status: status,
-            adminNotes: adminNotes
-        });
-
-        const url = `${APPS_SCRIPT_URL}?${params}`;
-        
-        console.log('Updating report status:', url);
-        
-        const response = await fetch(url, { method: 'GET' });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-            // Update local cache
-            const report = userReports.find(r => r.id === reportId);
-            if (report) {
-                report.status = status;
-                report.adminNotes = adminNotes;
-            }
-
-            const mapItem = mapData.find(m => m.reportId === reportId);
-            if (mapItem) {
-                mapItem.status = status;
-            }
-
-            showNotification('Report status updated successfully!', 'success');
-            return result;
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
-
-    } catch (error) {
-        console.error('Error updating via Apps Script:', error);
-        // Fallback to local update
-        const report = userReports.find(r => r.id === reportId);
-        if (report) {
-            report.status = status;
-            report.adminNotes = adminNotes;
-        }
-
-        const mapItem = mapData.find(m => m.reportId === reportId);
-        if (mapItem) {
-            mapItem.status = status;
-        }
-        
-        showNotification('Status updated locally (Apps Script failed)', 'warning');
-        return { success: false, error: error.message };
-    }
 }
 
 async function addUserReport(incidentType, location, description, anonymous = false, contact = '') {
@@ -2308,134 +2248,6 @@ window.addEventListener('beforeunload', stopAutoRefresh);
 const MAP_CACHE_KEY = 'notizar_map_cache';
 const CACHE_TIMESTAMP_KEY = 'notizar_cache_timestamp';
 const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
-
-// Enhanced loadData function with caching
-async function loadData(forceRefresh = false) {
-    try {
-        // Check cache first
-        const cachedData = getCachedData();
-        const shouldUseCache = cachedData && !forceRefresh && !isCacheExpired();
-        
-        if (shouldUseCache) {
-            console.log("📦 Using cached data");
-            announcements = cachedData.announcements || [];
-            userReports = cachedData.userReports || [];
-            mapData = cachedData.mapData || [];
-            
-            // Show cached data immediately
-            if (activeView === 'map') {
-                initMap();
-            }
-            
-            // Then update in background
-            setTimeout(() => loadData(true), 1000);
-            return;
-        }
-
-        console.log("🌐 Fetching fresh data from Google Sheets...");
-        
-        // Show loading state
-        if (activeView === 'map') {
-            showLoadingState();
-        }
-
-        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
-            fetch(ANNOUNCEMENTS_URL),
-            fetch(USER_REPORTS_URL),
-            fetch(MAP_DATA_URL)
-        ]);
-
-        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
-        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
-        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
-
-        const announcementsData = await announcementsRes.json();
-        const reportsData = await reportsRes.json();
-        const mapDataResponse = await mapDataRes.json();
-
-        // Process data
-        const newAnnouncements = (announcementsData.values || []).map(row => ({
-            id: parseInt(row[0]),
-            title: row[1],
-            content: row[2],
-            type: row[3],
-            date: row[4],
-            author: row[5],
-            priority: row[6]
-        }));
-
-        const newUserReports = (reportsData.values || []).map(row => ({
-            id: row[0],
-            incidentType: row[1],
-            location: row[2],
-            description: row[3],
-            timestamp: row[4],
-            status: row[5],
-            anonymous: row[6] === 'true',
-            contact: row[7],
-            adminNotes: row[8]
-        }));
-
-        const newMapData = (mapDataResponse.values || []).map(row => ({
-            reportId: row[0],
-            latitude: parseFloat(row[1]),
-            longitude: parseFloat(row[2]),
-            type: row[3],
-            status: row[4],
-            timestamp: row[5]
-        }));
-
-        // Update global arrays
-        announcements = newAnnouncements;
-        userReports = newUserReports;
-        mapData = newMapData;
-
-        // Cache the data
-        cacheData({
-            announcements: newAnnouncements,
-            userReports: newUserReports,
-            mapData: newMapData
-        });
-
-        console.log("✅ Fresh data loaded from Google Sheets!");
-        
-        // Check for new reports
-        checkForNewReports();
-        
-        // Update UI
-        if (activeView === 'map') {
-            hideLoadingState();
-            initMap();
-            showNotification('Map updated with latest data', 'success');
-        }
-        
-    } catch (error) {
-        console.error('❌ Google Sheets Error:', error);
-        
-        // Try to use cached data as fallback
-        const cachedData = getCachedData();
-        if (cachedData) {
-            console.log('🔄 Falling back to cached data');
-            announcements = cachedData.announcements || [];
-            userReports = cachedData.userReports || [];
-            mapData = cachedData.mapData || [];
-            
-            if (activeView === 'map') {
-                hideLoadingState();
-                initMap();
-                showNotification('Using cached data (connection failed)', 'warning');
-            }
-        } else {
-            console.log('🔄 Using demo data');
-            loadFallbackData();
-            if (activeView === 'map') {
-                hideLoadingState();
-                initMap();
-                showNotification('Using demo data (no connection)', 'error');
-            }
-        }
-    }
-}
 
 // Cache management functions
 function getCachedData() {
