@@ -1794,3 +1794,416 @@ function initAdminCharts() {
 
 // Auto-render the home page on load
 render();
+
+// === AUTO-REFRESH AND MAP INTEGRATION ===
+let lastReportCount = 0;
+let autoRefreshInterval = null;
+
+// Enhanced loadData function
+async function loadData() {
+    try {
+        console.log("Loading data from Google Sheets...");
+        
+        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
+            fetch(ANNOUNCEMENTS_URL),
+            fetch(USER_REPORTS_URL),
+            fetch(MAP_DATA_URL)
+        ]);
+
+        // Check if responses are OK
+        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
+        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
+        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+
+        const announcementsData = await announcementsRes.json();
+        const reportsData = await reportsRes.json();
+        const mapDataResponse = await mapDataRes.json();
+
+        // Convert sheet data to objects
+        announcements = (announcementsData.values || []).map(row => ({
+            id: parseInt(row[0]),
+            title: row[1],
+            content: row[2],
+            type: row[3],
+            date: row[4],
+            author: row[5],
+            priority: row[6]
+        }));
+
+        userReports = (reportsData.values || []).map(row => ({
+            id: row[0],
+            incidentType: row[1],
+            location: row[2],
+            description: row[3],
+            timestamp: row[4],
+            status: row[5],
+            anonymous: row[6] === 'true',
+            contact: row[7],
+            adminNotes: row[8]
+        }));
+
+        mapData = (mapDataResponse.values || []).map(row => ({
+            reportId: row[0],
+            latitude: parseFloat(row[1]),
+            longitude: parseFloat(row[2]),
+            type: row[3],
+            status: row[4],
+            timestamp: row[5]
+        }));
+
+        console.log("✅ Data loaded successfully from Google Sheets!");
+        
+        // Check for new reports
+        checkForNewReports();
+        
+    } catch (error) {
+        console.error('❌ Google Sheets Error:', error);
+        console.log('🔄 Using fallback data...');
+        loadFallbackData();
+    }
+}
+
+// Check for new reports and show notification
+function checkForNewReports() {
+    if (userReports.length > lastReportCount && lastReportCount > 0) {
+        const newReports = userReports.slice(0, userReports.length - lastReportCount);
+        newReports.forEach(report => {
+            showNotification(`New ${report.incidentType} reported at ${report.location}`, 'warning');
+            
+            // Auto-center map on new incident if on map view
+            if (activeView === 'map' && mapInstance) {
+                const correspondingMapData = mapData.find(m => m.reportId === report.id);
+                if (correspondingMapData) {
+                    mapInstance.setView([correspondingMapData.latitude, correspondingMapData.longitude], 15);
+                    
+                    // Pulse the marker
+                    const marker = mapMarkers.find(m => 
+                        m.getLatLng().lat === correspondingMapData.latitude && 
+                        m.getLatLng().lng === correspondingMapData.longitude
+                    );
+                    if (marker) {
+                        marker.openPopup();
+                    }
+                }
+            }
+        });
+    }
+    lastReportCount = userReports.length;
+}
+
+// Enhanced initMap function
+function initMap() {
+    if (mapInstance) {
+        mapInstance.remove();
+        mapMarkers = [];
+    }
+    
+    // Initialize map centered on Tshwane/Pretoria
+    mapInstance = L.map('liveMap').setView([-25.7479, 28.2293], 12);
+
+    // Add OpenStreetMap tiles
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(mapInstance);
+
+    // Marker icons
+    const redIcon = L.divIcon({ 
+        className: "custom-marker", 
+        html: '<div style="background:#dc2626;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>',
+        iconSize: [18, 18]
+    });
+    
+    const blueIcon = L.divIcon({ 
+        className: "custom-marker", 
+        html: '<div style="background:#2563eb;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>',
+        iconSize: [18, 18]
+    });
+    
+    const greenIcon = L.divIcon({ 
+        className: "custom-marker", 
+        html: '<div style="background:#16a34a;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>',
+        iconSize: [18, 18]
+    });
+
+    const tagTable = document.getElementById("tagTableBody");
+    if (tagTable) tagTable.innerHTML = '';
+
+    // Add markers from Google Sheets data
+    mapData.forEach(item => {
+        let icon;
+        let statusColor;
+        
+        if (item.type === 'Sensor') {
+            icon = blueIcon;
+            statusColor = '#2563eb';
+        } else if (item.status === 'resolved') {
+            icon = greenIcon;
+            statusColor = '#16a34a';
+        } else {
+            icon = redIcon;
+            statusColor = '#dc2626';
+        }
+        
+        const marker = L.marker([item.latitude, item.longitude], { icon: icon }).addTo(mapInstance);
+        mapMarkers.push(marker);
+        
+        // Get corresponding report details
+        const report = userReports.find(r => r.id === item.reportId) || {};
+        
+        marker.bindPopup(`
+            <div style="min-width: 200px;">
+                <h3 style="margin: 0 0 10px 0; font-weight: bold;">${item.type}</h3>
+                <p style="margin: 5px 0; font-size: 0.9em;">Status: <span style="color: ${statusColor}; font-weight: bold;">${item.status}</span></p>
+                <p style="margin: 5px 0; font-size: 0.9em;">ID: ${item.reportId}</p>
+                <p style="margin: 5px 0; font-size: 0.9em;">Time: ${item.timestamp}</p>
+                ${report.description ? `<p style="margin: 5px 0; font-size: 0.9em;">Description: ${report.description}</p>` : ''}
+            </div>
+        `);
+        
+        // Add row in table if table exists
+        if (tagTable) {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td class="px-3 py-2 border">${item.type}</td>
+                <td class="px-3 py-2 border">${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)}</td>
+                <td class="px-3 py-2 border">${item.status}</td>
+                <td class="px-3 py-2 border">${item.timestamp}</td>
+            `;
+            tagTable.appendChild(row);
+        }
+    });
+
+    // Initialize charts if on map view
+    if (activeView === 'map') {
+        initCharts();
+    }
+}
+
+// Enhanced updateMap function
+function updateMap() {
+    if (mapInstance) {
+        loadData().then(() => {
+            initMap();
+            showNotification('Map data refreshed!', 'success');
+        });
+    }
+}
+
+// Enhanced initCharts function
+function initCharts() {
+    // Destroy existing charts if they exist
+    if (charts.incidentTypeChart) charts.incidentTypeChart.destroy();
+
+    // Incident Type Chart
+    const incidentTypeCtx = document.getElementById("incidentTypeChart");
+    if (!incidentTypeCtx) return;
+    
+    // Count incidents by type
+    const incidentTypes = {};
+    userReports.forEach(report => {
+        incidentTypes[report.incidentType] = (incidentTypes[report.incidentType] || 0) + 1;
+    });
+    
+    const labels = Object.keys(incidentTypes);
+    const data = Object.values(incidentTypes);
+    
+    charts.incidentTypeChart = new Chart(incidentTypeCtx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Count",
+                data: data,
+                backgroundColor: ["#dc2626", "#2563eb", "#16a34a", "#d97706", "#9333ea"]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+    });
+}
+
+// Auto-refresh functionality
+function startAutoRefresh() {
+    // Clear existing interval
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+    
+    // Refresh data every 30 seconds
+    autoRefreshInterval = setInterval(() => {
+        if (activeView === 'map') {
+            loadData().then(() => {
+                initMap();
+                console.log('Map auto-refreshed at ' + new Date().toLocaleTimeString());
+            });
+        }
+    }, 30000); // 30 seconds
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}
+
+// Enhanced initializeAdminPage function
+async function initializeAdminPage() {
+    // Load data from Google Sheets first
+    await loadData();
+
+    // Test Apps Script connection
+    await testAppsScript();
+    
+    // Then render
+    render();
+    
+    // Close sidebar when clicking on overlay
+    document.querySelector('.sidebar-overlay').addEventListener('click', closeSidebar);
+    
+    // Start auto-refresh
+    startAutoRefresh();
+}
+
+// Enhanced render function to handle auto-refresh
+function render() {
+    const mainContainer = document.querySelector('.container');
+    mainContainer.innerHTML = '';
+    
+    let mainContent;
+    switch(activeView) {
+        case 'home':
+            mainContent = renderHome();
+            break;
+        case 'report':
+            mainContent = renderReport();
+            break;
+        case 'community':
+            mainContent = renderCommunity();
+            break;
+        case 'map':
+            mainContent = renderMap();
+            // Restart auto-refresh when switching to map
+            startAutoRefresh();
+            break;
+        case 'video':
+            mainContent = renderVideoSurveillance();
+            break;
+        case 'ai':
+            mainContent = renderAI();
+            break;
+        case 'admin':
+            mainContent = renderAdmin();
+            break;
+        default:
+            mainContent = renderHome();
+    }
+    
+    mainContainer.appendChild(mainContent);
+}
+
+// Update the renderMap function to include auto-refresh indicator
+function renderMap() {
+    const main = document.createElement('div');
+    main.innerHTML = `
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-900">Live Monitoring Map</h2>
+            <p class="text-gray-600">Real-time incidents, sensor data, and community reports from Google Sheets</p>
+            <div class="refresh-indicator">
+                <i class="fas fa-sync-alt mr-1"></i>
+                Auto-refresh: 30s
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <!-- Legend and controls remain the same -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <h3 class="text-xl font-semibold text-gray-900">Tshwane Community Map</h3>
+                <div class="flex flex-wrap gap-2">
+                    <button class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                        <div class="w-3 h-3 bg-blue-600 rounded-full mr-2"></div>
+                        Sensors
+                    </button>
+                    <button class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                        <div class="w-3 h-3 bg-red-600 rounded-full mr-2"></div>
+                        Active Incidents
+                    </button>
+                    <button class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                        <div class="w-3 h-3 bg-green-600 rounded-full mr-2"></div>
+                        Resolved
+                    </button>
+                </div>
+                <button id="refreshMapBtn" class="refresh-button">
+                    <i class="fas fa-sync-alt mr-1"></i>
+                    Refresh Now
+                </button>
+            </div>
+
+            <!-- Map -->
+            <div id="liveMap" class="rounded-lg shadow-md mb-6" style="height: 400px;"></div>
+
+            <!-- Stats and table sections remain the same -->
+            <div class="marker-stats">
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.filter(m => m.type === 'Sensor').length}</div>
+                    <div class="marker-stat-label">Sensors</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.filter(m => m.status === 'pending' || m.status === 'investigating').length}</div>
+                    <div class="marker-stat-label">Active Incidents</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.filter(m => m.status === 'resolved').length}</div>
+                    <div class="marker-stat-label">Resolved</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${userReports.length}</div>
+                    <div class="marker-stat-label">Total Reports</div>
+                </div>
+                <div class="marker-stat">
+                    <div class="marker-stat-number">${mapData.length}</div>
+                    <div class="marker-stat-label">Total Markers</div>
+                </div>
+            </div>
+
+            <div class="side-by-side gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h4 class="text-lg font-semibold mb-4 text-gray-900">Incidents by Type</h4>
+                    <canvas id="incidentTypeChart" class="small-chart"></canvas>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-4 overflow-x-auto">
+                    <h4 class="text-lg font-semibold mb-4 text-gray-900">Tag Details</h4>
+                    <div class="tag-details-container">
+                        <table class="min-w-full border border-gray-200 text-sm">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="px-3 py-2 border">Type</th>
+                                    <th class="px-3 py-2 border">Location</th>
+                                    <th class="px-3 py-2 border">Status</th>
+                                    <th class="px-3 py-2 border">Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tagTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Initialize map after DOM render
+    setTimeout(() => {
+        initMap();
+        document.getElementById('refreshMapBtn').addEventListener('click', updateMap);
+    }, 50);
+
+    return main;
+}
+
+// Add cleanup when leaving page
+window.addEventListener('beforeunload', stopAutoRefresh);

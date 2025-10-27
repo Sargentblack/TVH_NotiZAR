@@ -1994,3 +1994,57 @@
 
         @keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 15px rgba(220, 38, 38, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); } }
         .new-marker .leaflet-marker-icon { animation: pulse 1.5s infinite; }
+
+        /* Announcement Styles */
+.announcement-item {
+    transition: all 0.3s ease;
+}
+
+.announcement-item:hover {
+    transform: translateY(-2px);
+}
+
+/* Notification Styles */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 400px;
+    animation: slideInRight 0.3s ease;
+}
+
+.notification.success {
+    background: #f0f9ff;
+    border-left: 4px solid #0ea5e9;
+    color: #0369a1;
+}
+
+.notification.warning {
+    background: #fef3c7;
+    border-left: 4px solid #f59e0b;
+    color: #92400e;
+}
+
+.notification.error {
+    background: #fef2f2;
+    border-left: 4px solid #ef4444;
+    color: #dc2626;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

@@ -286,6 +286,82 @@ function renderUserReportHistory() {
 }
 
 // === UTILITY FUNCTIONS ===
+
+function checkForNewAlerts() {
+    // Check if there are any high-priority announcements from the last 24 hours
+    const last24Hours = new Date();
+    last24Hours.setHours(last24Hours.getHours() - 24);
+    
+    const highPriorityAlerts = announcements.filter(announcement => {
+        const announcementDate = new Date(announcement.date);
+        return announcement.priority === 'high' && announcementDate > last24Hours;
+    });
+
+    // Show notification if there are high priority alerts
+    if (highPriorityAlerts.length > 0) {
+        showAlertNotification(highPriorityAlerts);
+    }
+}
+
+function showAlertNotification(alerts) {
+    // Request notification permission if not already granted
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+                showBrowserNotification(alerts);
+            }
+        });
+    } else if (Notification.permission === 'granted') {
+        showBrowserNotification(alerts);
+    }
+
+    // Always show in-app notification
+    showInAppAlertNotification(alerts);
+}
+
+function showBrowserNotification(alerts) {
+    if (alerts.length === 1) {
+        new Notification('NotiZAR - High Priority Alert', {
+            body: `${alerts[0].title}: ${alerts[0].content}`,
+            icon: '/logo.png',
+            tag: 'notizar-alert'
+        });
+    } else {
+        new Notification('NotiZAR - Multiple Alerts', {
+            body: `You have ${alerts.length} high priority alerts`,
+            icon: '/logo.png',
+            tag: 'notizar-alert'
+        });
+    }
+}
+
+function showInAppAlertNotification(alerts) {
+    const notification = document.createElement('div');
+    notification.className = 'fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg border-l-4 border-red-500 bg-red-50 text-red-800 max-w-md';
+    notification.innerHTML = `
+        <div class="flex items-start">
+            <i class="fas fa-exclamation-triangle mr-2 mt-1"></i>
+            <div>
+                <h4 class="font-semibold">High Priority Alert${alerts.length > 1 ? 's' : ''}</h4>
+                <p class="text-sm mt-1">${alerts.length} new high priority announcement${alerts.length > 1 ? 's' : ''}</p>
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" class="text-red-600 hover:text-red-800 text-sm font-medium mt-2">
+                    Dismiss
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+        if (notification.parentElement) {
+            notification.remove();
+        }
+    }, 10000);
+}
+
+
 function getStatusColor(status) {
     switch(status.toLowerCase()) {
         case 'resolved': return 'bg-green-100 text-green-800';
@@ -390,6 +466,7 @@ function showReportNotes(reportId) {
     `;
     document.body.appendChild(modal);
 }
+
 
 // === USER FORM HANDLING ===
 function initializeUserForm() {
@@ -496,18 +573,12 @@ function startRealTimeUpdates() {
                 const newCount = announcements.length - previousAnnouncementsCount;
                 showNotification(`${newCount} new announcement${newCount > 1 ? 's' : ''} available!`, 'success');
                 
+                // Check for high priority alerts
+                checkForNewAlerts();
+                
                 // Request browser notification permission
                 if ('Notification' in window && Notification.permission === 'default') {
                     Notification.requestPermission();
-                }
-                
-                // Show browser notification for high priority announcements
-                const highPriorityAnnouncements = announcements.slice(previousAnnouncementsCount).filter(a => a.priority === 'high');
-                if (highPriorityAnnouncements.length > 0 && Notification.permission === 'granted') {
-                    new Notification(`NotiZAR - High Priority Update`, {
-                        body: `${highPriorityAnnouncements.length} new high priority announcement${highPriorityAnnouncements.length > 1 ? 's' : ''}`,
-                        icon: '/logo.png'
-                    });
                 }
             }
         } catch (error) {
@@ -874,12 +945,73 @@ window.addEventListener('beforeunload', stopRealTimeUpdates);
             <p class="text-gray-600">Welcome back! Here's the latest from your area.</p>
         </div>
 
-        <!-- Your existing stats cards remain the same -->
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-red-600">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">Active Incidents</h3>
+                        <p class="text-3xl font-bold text-gray-900">2</p>
+                    </div>
+                    <div class="bg-red-100 p-3 rounded-lg">
+                        <i class="fas fa-exclamation-triangle text-red-600"></i>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">In Hatfield & Sunnyside</p>
+            </div>
 
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-green-600">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">Sensors Active</h3>
+                        <p class="text-3xl font-bold text-gray-900">143</p>
+                    </div>
+                    <div class="bg-green-100 p-3 rounded-lg">
+                        <i class="fas fa-wifi text-green-600"></i>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">4 zones covered</p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-600">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">Response Time</h3>
+                        <p class="text-3xl font-bold text-gray-900">8.4 min</p>
+                    </div>
+                    <div class="bg-blue-100 p-3 rounded-lg">
+                        <i class="fas fa-clock text-blue-600"></i>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">Average this month</p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-purple-600">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-700">Prevented</h3>
+                        <p class="text-3xl font-bold text-gray-900">14</p>
+                    </div>
+                    <div class="bg-purple-100 p-3 rounded-lg">
+                        <i class="fas fa-shield-check text-purple-600"></i>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">Incidents this month</p>
+            </div>
+        </div>
+
+        <!-- Admin Announcements Section -->
         <div class="side-by-side gap-8 mb-8">
             <div class="bg-white rounded-xl shadow-md p-6">
                 <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900">Recent Announcements</h3>
+                    <h3 class="text-xl font-semibold text-gray-900 flex items-center">
+                        <i class="fas fa-bullhorn text-blue-600 mr-2"></i>
+                        Admin Announcements
+                        ${announcements.length > 0 ? 
+                            `<span class="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">${announcements.length} new</span>` : 
+                            ''
+                        }
+                    </h3>
                     <button onclick="showAllAnnouncements()" class="text-blue-600 hover:text-blue-800 text-sm font-medium">View All</button>
                 </div>
                 <div class="space-y-4" id="announcementsContainer">
@@ -887,26 +1019,34 @@ window.addEventListener('beforeunload', stopRealTimeUpdates);
                 </div>
             </div>
 
-            <!-- Your existing Community Watch section remains the same -->
+            <!-- Recent Activity Section -->
             <div class="bg-white rounded-xl shadow-md p-6">
                 <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900">Community Watch</h3>
-                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">Join Group</button>
+                    <h3 class="text-xl font-semibold text-gray-900">Recent Activity</h3>
+                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View All</button>
                 </div>
                 <div class="space-y-4">
-                    ${watchGroups.map(group => `
+                    ${recentActivity.map(item => `
                         <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                             <div class="flex justify-between items-start">
-                                <div>
-                                    <h4 class="font-medium text-gray-900">${group.name}</h4>
-                                    <div class="flex items-center mt-2">
-                                        <span class="text-xs ${group.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'} px-2 py-1 rounded-full">${group.active ? 'Active' : 'Inactive'}</span>
-                                        <span class="text-xs text-gray-500 ml-2">${group.members} members</span>
+                                <div class="flex items-start space-x-3">
+                                    <div class="mt-1">
+                                        ${item.type === 'sensor_alert' ? 
+                                            '<div class="bg-red-100 p-2 rounded-full"><i class="fas fa-wifi text-red-600"></i></div>' : 
+                                            item.type === 'community_report' ? 
+                                            '<div class="bg-blue-100 p-2 rounded-full"><i class="fas fa-users text-blue-600"></i></div>' : 
+                                            '<div class="bg-green-100 p-2 rounded-full"><i class="fas fa-shield-check text-green-600"></i></div>'
+                                        }
+                                    </div>
+                                    <div>
+                                        <h4 class="font-medium text-gray-900">${item.location}</h4>
+                                        <p class="text-sm text-gray-600">${item.message}</p>
+                                        <div class="flex items-center mt-2">
+                                            <span class="text-xs ${item.status === 'resolved' ? 'bg-green-100 text-green-800' : item.status === 'investigating' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'} px-2 py-1 rounded-full">${item.status}</span>
+                                            <span class="text-xs text-gray-500 ml-2">${item.time}</span>
+                                        </div>
                                     </div>
                                 </div>
-                                <button class="text-blue-600 hover:text-blue-800">
-                                    <i class="fas fa-chevron-right"></i>
-                                </button>
                             </div>
                         </div>
                     `).join('')}
@@ -914,12 +1054,55 @@ window.addEventListener('beforeunload', stopRealTimeUpdates);
             </div>
         </div>
 
-        <!-- Rest of your home page content remains the same -->
+        <!-- Community Watch Section -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-semibold text-gray-900">Community Watch</h3>
+                <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">Join Group</button>
+            </div>
+            <div class="space-y-4">
+                ${watchGroups.map(group => `
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h4 class="font-medium text-gray-900">${group.name}</h4>
+                                <div class="flex items-center mt-2">
+                                    <span class="text-xs ${group.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'} px-2 py-1 rounded-full">${group.active ? 'Active' : 'Inactive'}</span>
+                                    <span class="text-xs text-gray-500 ml-2">${group.members} members</span>
+                                </div>
+                            </div>
+                            <button class="text-blue-600 hover:text-blue-800">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Emergency Reporting CTA -->
+        <div class="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 rounded-xl shadow-lg p-8 text-white">
+            <div class="max-w-3xl">
+                <h3 class="text-2xl font-bold mb-4">Report Suspicious Activity</h3>
+                <p class="mb-6">See something that doesn't look right? Report it immediately and help prevent cable theft in your community.</p>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <button onclick="navigateTo('report')" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        Emergency Report
+                    </button>
+                    <button class="bg-white hover:bg-gray-100 text-blue-900 font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center">
+                        <i class="fas fa-clipboard-list mr-2"></i>
+                        Non-Emergency Report
+                    </button>
+                </div>
+            </div>
+        </div>
     `;
 
     // Load announcements after DOM is rendered
     setTimeout(() => {
         renderAnnouncements();
+        checkForNewAlerts();
     }, 50);
 
     return main;
