@@ -584,7 +584,7 @@ function startRealTimeUpdates() {
         } catch (error) {
             console.error('Error checking for updates:', error);
         }
-    }, 30000); // 30 seconds
+    }, 5000); // 5 seconds
 }
 
 function stopRealTimeUpdates() {
