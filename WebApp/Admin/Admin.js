@@ -2,6 +2,11 @@
 const SHEET_ID = '1Gpj_0729wCx9mgg0NS7OY9J_hnkzOCuwfNR7J6-pw6c';
 const API_KEY = 'AIzaSyD6pyc_Aze3RK_CjSg7kgOZe0ks471ZUgk';
 
+// === SUPABASE CONFIGURATION ===
+const SUPABASE_URL = 'https://cnptukavcjqbczlzihjv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucHR1a2F2Y2pxYmN6bHppaGp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0OTMzODIsImV4cCI6MjA3NDA2OTM4Mn0.1l_E9OI8pKZpIA4f7arbWIl0h0WnZXGFq71Fn_vyQ04';
+
+
 // Google Sheets URLs
 const ANNOUNCEMENTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/Announcements!A2:G?key=${API_KEY}`;
 const USER_REPORTS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/UserReports!A2:I?key=${API_KEY}`;
@@ -12,24 +17,102 @@ let announcements = [];
 let userReports = [];
 let mapData = [];
 
+// === LOCAL STORAGE KEYS ===
+const LOCAL_ANNOUNCEMENTS_KEY = 'notizar_announcements';
+const LOCAL_USER_REPORTS_KEY = 'notizar_user_reports';
+const LOCAL_MAP_DATA_KEY = 'notizar_map_data';
+const PENDING_SYNC_KEY = 'notizar_pending_sync';
+
 // === GOOGLE APPS SCRIPT CONFIGURATION ===
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJzmUZL8J8GCICo14JQb7mysnxBbf3_j8mejStLjTrgKg0GddoFeVIxIgTPwlnOFeFlA/exec";
 
-// Load data from Google Sheets
+// === SUPABASE CLIENT INITIALIZATION ===
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// === SUPABASE CONNECTION STATUS ===
+let supabaseConnected = false;
+
+// Update connection status function
+function updateConnectionStatus(connected) {
+    supabaseConnected = connected;
+    const statusElement = document.getElementById('supabaseStatus');
+    if (statusElement) {
+        statusElement.innerHTML = connected ? 
+            '<span style="color: #10B981;"><i class="fas fa-check-circle"></i> Supabase Connected</span>' :
+            '<span style="color: #EF4444;"><i class="fas fa-exclamation-triangle"></i> Supabase Offline</span>';
+    }
+}
+
+// Enhanced loadData function with Supabase priority
+// In your Admin.js - update the loadData function
 async function loadData() {
     try {
-        console.log("Loading data from Google Sheets...");
+        console.log("🔄 Loading data from Supabase for admin...");
         
+        // Clear existing data first
+        userReports = [];
+        announcements = [];
+        mapData = [];
+
+        // Fetch from Supabase with proper error handling
+        const { data: reportsData, error: reportsError } = await supabase
+            .from('user_reports')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        const { data: announcementsData, error: announcementsError } = await supabase
+            .from('announcements')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        const { data: mapDataResponse, error: mapDataError } = await supabase
+            .from('map_data')
+            .select('*');
+
+        // Log any errors
+        if (reportsError) {
+            console.error('❌ Error loading reports:', reportsError);
+            throw reportsError;
+        }
+        if (announcementsError) console.error('Error loading announcements:', announcementsError);
+        if (mapDataError) console.error('Error loading map data:', mapDataError);
+
+        // Update global arrays with Supabase data
+        userReports = reportsData || [];
+        announcements = announcementsData || [];
+        mapData = mapDataResponse || [];
+
+        console.log(`✅ Loaded ${userReports.length} reports from Supabase`);
+        console.log('Sample Supabase report:', userReports[0]);
+
+        // Clear local storage to force using Supabase data
+        localStorage.removeItem('notizar_user_reports');
+        localStorage.removeItem('notizar_announcements');
+        localStorage.removeItem('notizar_map_data');
+
+        // Update UI
+        renderIncidentTable();
+        renderAnnouncementsTable();
+        updateDashboardStats();
+
+    } catch (error) {
+        console.error('❌ Supabase loading failed:', error);
+        console.log('🔄 Falling back to local storage...');
+        loadFromLocalStorage();
+    }
+}
+// Google Sheets fallback
+async function loadFromGoogleSheets() {
+    try {
         const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
             fetch(ANNOUNCEMENTS_URL),
             fetch(USER_REPORTS_URL),
             fetch(MAP_DATA_URL)
         ]);
 
-        // Check if responses are OK
-        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
-        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
-        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
+        if (!announcementsRes.ok || !reportsRes.ok || !mapDataRes.ok) {
+            throw new Error('Google Sheets also failed');
+        }
 
         const announcementsData = await announcementsRes.json();
         const reportsData = await reportsRes.json();
@@ -43,38 +126,314 @@ async function loadData() {
             type: row[3],
             date: row[4],
             author: row[5],
-            priority: row[6]
+            priority: row[6],
+            created_at: row[4] // Use date as created_at for fallback
         }));
 
         userReports = (reportsData.values || []).map(row => ({
             id: row[0],
-            incidentType: row[1],
+            incident_type: row[1],
             location: row[2],
             description: row[3],
             timestamp: row[4],
             status: row[5],
             anonymous: row[6] === 'true',
             contact: row[7],
-            adminNotes: row[8]
+            admin_notes: row[8],
+            created_at: row[4]
         }));
 
         mapData = (mapDataResponse.values || []).map(row => ({
-            reportId: row[0],
-            latitude: parseFloat(row[1]),
-            longitude: parseFloat(row[2]),
-            type: row[3],
-            status: row[4],
-            timestamp: row[5]
+            id: row[0],
+            report_id: row[1],
+            latitude: parseFloat(row[2]),
+            longitude: parseFloat(row[3]),
+            type: row[4],
+            status: row[5],
+            timestamp: row[6],
+            created_at: row[6]
         }));
 
-        console.log("✅ Data loaded successfully from Google Sheets!");
+        console.log("✅ Data loaded from Google Sheets fallback!");
+        saveToLocalStorage();
         
+    } catch (sheetsError) {
+        console.error('❌ Google Sheets Error:', sheetsError);
+        console.log('🔄 Using local storage data...');
+        loadFromLocalStorage();
+    }
+}
+
+// Enhanced addAnnouncement function with full form fields
+async function addAnnouncement(title, content, type, date, author, priority) {
+    // Validate and sanitize all inputs with proper null checking
+    const sanitizedAnnouncement = {
+        title: (title || '').toString().trim(),
+        content: (content || '').toString().trim(),
+        type: (type || 'info').toString().trim(),
+        date: (date || new Date().toISOString().split('T')[0]).toString().trim(),
+        author: (author || 'Admin').toString().trim(),
+        priority: (priority || 'medium').toString().trim(),
+        created_at: new Date().toISOString()
+    };
+
+    // Validate required fields
+    if (!sanitizedAnnouncement.title || !sanitizedAnnouncement.content) {
+        showNotification('Title and content are required fields.', 'error');
+        throw new Error('Missing required fields');
+    }
+
+    console.log("📤 Attempting to save announcement:", sanitizedAnnouncement);
+
+    try {
+        // Try Supabase first - don't include ID, let Supabase generate it
+        const { data, error } = await supabase
+            .from('announcements')
+            .insert([{
+                title: sanitizedAnnouncement.title,
+                content: sanitizedAnnouncement.content,
+                type: sanitizedAnnouncement.type,
+                date: sanitizedAnnouncement.date,
+                author: sanitizedAnnouncement.author,
+                priority: sanitizedAnnouncement.priority,
+                created_at: sanitizedAnnouncement.created_at
+            }])
+            .select();
+
+        if (error) {
+            console.error('❌ Supabase insert error:', error);
+            
+            // Check for specific error types
+            if (error.code === '23505') { // Unique violation
+                throw new Error('Duplicate entry - this announcement already exists');
+            } else if (error.code === '42501') { // Permission denied
+                throw new Error('Permission denied - check your RLS policies');
+            } else if (error.code === '42703') { // Column doesn't exist
+                throw new Error('Column does not exist - check your table schema');
+            } else {
+                throw new Error(`Database error: ${error.message}`);
+            }
+        }
+
+        // Success - use the data returned from Supabase
+        const savedAnnouncement = data[0];
+        console.log("✅ Announcement saved to Supabase:", savedAnnouncement);
+        
+        // Add to local array with the returned ID
+        announcements.unshift(savedAnnouncement);
+        
+        showNotification('Announcement published successfully!', 'success');
+        render();
+        return savedAnnouncement;
+
     } catch (error) {
-        console.error('❌ Google Sheets Error:', error);
-        console.log('🔄 Using fallback data...');
+        console.error('❌ Error saving announcement to Supabase:', error);
+        
+        // Generate a temporary ID for fallback
+        const tempId = 'temp-' + Date.now();
+        const fallbackAnnouncement = {
+            ...sanitizedAnnouncement,
+            id: tempId
+        };
+        
+        try {
+            await saveAnnouncementToGoogleSheets(fallbackAnnouncement);
+            announcements.unshift(fallbackAnnouncement);
+            showNotification('Announcement saved to Google Sheets (Supabase: ' + error.message + ')', 'warning');
+            render();
+            return fallbackAnnouncement;
+        } catch (sheetsError) {
+            console.error('❌ Google Sheets also failed:', sheetsError);
+            // Final fallback to local storage
+            addPendingSync('addAnnouncement', fallbackAnnouncement);
+            announcements.unshift(fallbackAnnouncement);
+            saveToLocalStorage();
+            showNotification('Announcement saved locally (will sync when online)', 'warning');
+            render();
+            return fallbackAnnouncement;
+        }
+    }
+}
+
+// Google Sheets fallback for announcements
+async function saveAnnouncementToGoogleSheets(announcement) {
+    const params = new URLSearchParams({
+        action: 'addAnnouncement',
+        title: announcement.title,
+        content: announcement.content,
+        type: announcement.type,
+        date: announcement.date,
+        author: announcement.author,
+        priority: announcement.priority
+    });
+
+    const url = `${APPS_SCRIPT_URL}?${params}`;
+    const response = await fetch(url, { method: 'GET' });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+    }
+}
+
+// Enhanced announcement form handler
+function handleAnnouncementSubmit(e) {
+    e.preventDefault();
+    
+    // Get form values with proper null checking
+    const title = document.getElementById('announcementTitle')?.value || '';
+    const content = document.getElementById('announcementContent')?.value || '';
+    const type = document.getElementById('announcementType')?.value || 'info';
+    const date = document.getElementById('announcementDate')?.value || new Date().toISOString().split('T')[0];
+    const author = document.getElementById('announcementAuthor')?.value || 'Admin';
+    const priority = document.getElementById('announcementPriority')?.value || 'medium';
+    
+    // Validate required fields
+    if (!title.trim() || !content.trim()) {
+        showNotification('Please fill in all required fields (Title and Content).', 'error');
+        return;
+    }
+    
+    // Validate date format
+    if (!isValidDate(date)) {
+        showNotification('Please enter a valid date.', 'error');
+        return;
+    }
+    
+    addAnnouncement(title, content, type, date, author, priority);
+    document.getElementById('announcementForm').reset();
+}
+
+// Add date validation helper function
+function isValidDate(dateString) {
+    const regex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateString.match(regex)) return false;
+    
+    const date = new Date(dateString);
+    const timestamp = date.getTime();
+    return !isNaN(timestamp);
+}
+
+// Local storage functions for backup
+function saveToLocalStorage() {
+    try {
+        localStorage.setItem(LOCAL_ANNOUNCEMENTS_KEY, JSON.stringify(announcements));
+        localStorage.setItem(LOCAL_USER_REPORTS_KEY, JSON.stringify(userReports));
+        localStorage.setItem(LOCAL_MAP_DATA_KEY, JSON.stringify(mapData));
+        console.log("💾 Data saved to local storage");
+    } catch (error) {
+        console.error('Error saving to local storage:', error);
+    }
+}
+
+function loadFromLocalStorage() {
+    try {
+        console.log('📦 Attempting to load from local storage...');
+        
+        const storedReports = localStorage.getItem('notizar_user_reports');
+        const storedAnnouncements = localStorage.getItem('notizar_announcements');
+        const storedMapData = localStorage.getItem('notizar_map_data');
+        
+        // Only use local storage if we have NO Supabase data
+        if (storedReports && userReports.length === 0) {
+            userReports = JSON.parse(storedReports);
+            console.log('📦 Loaded from local storage:', userReports.length, 'reports');
+        }
+        
+        if (storedAnnouncements && announcements.length === 0) {
+            announcements = JSON.parse(storedAnnouncements);
+        }
+        
+        if (storedMapData && mapData.length === 0) {
+            mapData = JSON.parse(storedMapData);
+        }
+        
+        // If still no data, use fallback
+        if (userReports.length === 0 && announcements.length === 0) {
+            console.log('📦 No data available, loading fallback data');
+            loadFallbackData();
+        }
+        
+    } catch (e) {
+        console.error('Error loading from local storage:', e);
         loadFallbackData();
     }
 }
+
+// Test Supabase connection
+async function testSupabaseConnection() {
+    try {
+        showNotification('Testing Supabase connection...', 'info');
+        const { data, error } = await supabase.from('announcements').select('count').limit(1);
+        
+        if (error) throw error;
+        
+        updateConnectionStatus(true);
+        showNotification('Supabase connection successful!', 'success');
+    } catch (error) {
+        console.error('Supabase connection test failed:', error);
+        updateConnectionStatus(false);
+        showNotification('Supabase connection failed. Using fallback data.', 'error');
+    }
+}
+
+// Initialize with connection test
+async function initializeAdminPage() {
+    // Test connection first
+    await testSupabaseConnection();
+    
+    // Load data
+    await loadData();
+
+    // Test Apps Script connection
+    await testAppsScript();
+    
+    // Then render
+    render();
+    
+    // Close sidebar when clicking on overlay
+    document.querySelector('.sidebar-overlay').addEventListener('click', closeSidebar);
+}
+
+// Add this function to fix the missing reference
+function addPendingSync(operation) {
+  console.log('Sync operation:', operation);
+  // Implement your offline sync logic here
+  // Or remove the call if you don't need offline sync
+}
+async function updateReportStatus(reportId, status, adminNotes = '') {
+    try {
+        // Update local cache first
+        const report = userReports.find(r => r.id === reportId);
+        if (report) {
+            report.status = status;
+            report.admin_notes = adminNotes;
+        }
+
+        // Sync to Supabase
+        const { data, error } = await supabase
+            .from('user_reports')
+            .update({ status, admin_notes: adminNotes })
+            .eq('id', reportId);
+
+        if (error) throw error;
+
+        showNotification('Report status updated successfully!', 'success');
+        render();
+
+    } catch (error) {
+        console.error('Error updating report status:', error);
+        addPendingSync('updateReportStatus', { reportId, status, adminNotes });
+        showNotification('Status updated locally (will sync when online)', 'warning');
+        render();
+    }
+}
+
+// KEEP ALL YOUR EXISTING ADMIN FUNCTIONS BELOW
 
 // Fallback demo data
 function loadFallbackData() {
@@ -94,171 +453,202 @@ function loadFallbackData() {
     mapData = [];
 }
 
-// Apps Script Functions
-async function addAnnouncement(title, content, type, priority) {
-    const newAnnouncement = {
-        id: Date.now(),
-        title,
-        content,
-        type: type || 'info',
-        date: new Date().toISOString().split('T')[0],
-        author: 'Admin',
-        priority: priority || 'medium'
+// Enhanced addUserReport function with Supabase priority
+async function addUserReport(incidentType, location, description, anonymous = false, contact = '') {
+    const sanitizedReport = {
+        incident_type: (incidentType || '').toString().trim(),
+        location: (location || '').toString().trim(),
+        description: (description || '').toString().trim(),
+        anonymous: !!anonymous,
+        contact: (contact || '').toString().trim(),
+        status: 'pending',
+        admin_notes: '',
+        created_at: new Date().toISOString()
     };
 
+    // Validate required fields
+    if (!sanitizedReport.incident_type || !sanitizedReport.location || !sanitizedReport.description) {
+        showNotification('Incident type, location, and description are required fields.', 'error');
+        throw new Error('Missing required fields');
+    }
+
+    console.log("📤 Attempting to save user report:", sanitizedReport);
+
     try {
-        const params = new URLSearchParams({
-            action: 'addAnnouncement',
-            id: newAnnouncement.id.toString(),
-            title: newAnnouncement.title,
-            content: newAnnouncement.content,
-            type: newAnnouncement.type,
-            date: newAnnouncement.date,
-            author: newAnnouncement.author,
-            priority: newAnnouncement.priority
-        });
+        // Try Supabase first
+        const { data, error } = await supabase
+            .from('user_reports')
+            .insert([sanitizedReport])
+            .select();
 
-        const url = `${APPS_SCRIPT_URL}?${params}`;
-        
-        console.log('Sending announcement to:', url);
-        
-        const response = await fetch(url, { method: 'GET' });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        if (error) {
+            console.error('❌ Supabase insert error:', error);
+            throw new Error(`Database error: ${error.message}`);
         }
 
-        const result = await response.json();
+        // Success - use the data returned from Supabase
+        const savedReport = data[0];
+        console.log("✅ User report saved to Supabase:", savedReport);
         
-        if (result.success) {
-            announcements.unshift(newAnnouncement);
-            showNotification('Announcement published successfully!', 'success');
-            return newAnnouncement;
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
+        // Add to local array with the returned ID
+        userReports.unshift(savedReport);
+        
+        showNotification('Report submitted successfully!', 'success');
+        render();
+        return savedReport;
 
     } catch (error) {
-        console.error('Error saving to Apps Script:', error);
-        // Fallback to local storage
-        announcements.unshift(newAnnouncement);
-        showNotification('Announcement saved locally (Apps Script failed)', 'warning');
-        return newAnnouncement;
+        console.error('❌ Error saving report to Supabase:', error);
+        
+        // Generate a temporary ID for fallback
+        const tempId = 'UR-' + Date.now();
+        const fallbackReport = {
+            ...sanitizedReport,
+            id: tempId
+        };
+        
+        try {
+            await saveUserReportToGoogleSheets(fallbackReport);
+            userReports.unshift(fallbackReport);
+            showNotification('Report saved to Google Sheets (Supabase: ' + error.message + ')', 'warning');
+            render();
+            return fallbackReport;
+        } catch (sheetsError) {
+            console.error('❌ Google Sheets also failed:', sheetsError);
+            // Final fallback to local storage
+            addPendingSync('addUserReport', fallbackReport);
+            userReports.unshift(fallbackReport);
+            saveToLocalStorage();
+            showNotification('Report saved locally (will sync when online)', 'warning');
+            render();
+            return fallbackReport;
+        }
     }
 }
 
+// Google Sheets fallback for user reports
+async function saveUserReportToGoogleSheets(report) {
+    const params = new URLSearchParams({
+        action: 'addUserReport',
+        id: report.id,
+        incidentType: report.incident_type,
+        location: report.location,
+        description: report.description,
+        timestamp: report.created_at,
+        status: report.status,
+        anonymous: report.anonymous.toString(),
+        contact: report.contact,
+        adminNotes: report.admin_notes
+    });
+
+    const url = `${APPS_SCRIPT_URL}?${params}`;
+    const response = await fetch(url, { method: 'GET' });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+    }
+}
+
+// Enhanced updateReportStatus function with Supabase
 async function updateReportStatus(reportId, status, adminNotes = '') {
     try {
-        const params = new URLSearchParams({
-            action: 'updateReportStatus',
-            reportId: reportId,
-            status: status,
-            adminNotes: adminNotes
-        });
-
-        const url = `${APPS_SCRIPT_URL}?${params}`;
-        
-        console.log('Updating report status:', url);
-        
-        const response = await fetch(url, { method: 'GET' });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-            // Update local cache
-            const report = userReports.find(r => r.id === reportId);
-            if (report) {
-                report.status = status;
-                report.adminNotes = adminNotes;
-            }
-
-            const mapItem = mapData.find(m => m.reportId === reportId);
-            if (mapItem) {
-                mapItem.status = status;
-            }
-
-            showNotification('Report status updated successfully!', 'success');
-            return result;
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
-
-    } catch (error) {
-        console.error('Error updating via Apps Script:', error);
-        // Fallback to local update
+        // Update local cache first
         const report = userReports.find(r => r.id === reportId);
         if (report) {
             report.status = status;
-            report.adminNotes = adminNotes;
+            report.admin_notes = adminNotes;
         }
 
-        const mapItem = mapData.find(m => m.reportId === reportId);
-        if (mapItem) {
-            mapItem.status = status;
-        }
-        
-        showNotification('Status updated locally (Apps Script failed)', 'warning');
-        return { success: false, error: error.message };
+        // Sync to Supabase
+        const { data, error } = await supabase
+            .from('user_reports')
+            .update({ 
+                status: status, 
+                admin_notes: adminNotes,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', reportId);
+
+        if (error) throw error;
+
+        showNotification('Report status updated successfully!', 'success');
+        render();
+
+    } catch (error) {
+        console.error('Error updating report status:', error);
+        addPendingSync('updateReportStatus', { reportId, status, adminNotes });
+        showNotification('Status updated locally (will sync when online)', 'warning');
+        render();
     }
 }
 
-async function addUserReport(incidentType, location, description, anonymous = false, contact = '') {
-    const newReport = {
-        id: 'UR-' + Date.now(),
-        incidentType,
-        location,
-        description,
-        timestamp: new Date().toLocaleString(),
-        status: 'pending',
-        anonymous: anonymous ? 'true' : 'false',
-        contact,
-        adminNotes: ''
-    };
-
+// Function to add map data to Supabase
+async function addMapData(reportId, latitude, longitude, type, status = 'active') {
     try {
-        const params = new URLSearchParams({
-            action: 'addUserReport',
-            id: newReport.id,
-            incidentType: newReport.incidentType,
-            location: newReport.location,
-            description: newReport.description,
-            timestamp: newReport.timestamp,
-            status: newReport.status,
-            anonymous: newReport.anonymous,
-            contact: newReport.contact,
-            adminNotes: newReport.adminNotes
-        });
+        const mapRecord = {
+            report_id: reportId,
+            latitude: latitude,
+            longitude: longitude,
+            type: type,
+            status: status,
+            created_at: new Date().toISOString()
+        };
 
-        const url = `${APPS_SCRIPT_URL}?${params}`;
-        
-        console.log('Sending user report to:', url);
-        
-        const response = await fetch(url, { method: 'GET' });
+        const { data, error } = await supabase
+            .from('map_data')
+            .insert([mapRecord])
+            .select();
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        if (error) throw error;
 
-        const result = await response.json();
-        
-        if (result.success) {
-            userReports.unshift(newReport);
-            showNotification('Report submitted successfully!', 'success');
-            return newReport;
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
+        console.log("✅ Map data saved to Supabase:", data[0]);
+        return data[0];
 
     } catch (error) {
-        console.error('Error saving report to Apps Script:', error);
-        // Fallback to local storage
-        userReports.unshift(newReport);
-        showNotification('Report saved locally (Apps Script failed)', 'warning');
-        return newReport;
+        console.error('❌ Error saving map data to Supabase:', error);
+        
+        // Fallback to Google Sheets
+        try {
+            await saveMapDataToGoogleSheets({
+                ...mapRecord,
+                id: 'MAP-' + Date.now()
+            });
+            return mapRecord;
+        } catch (sheetsError) {
+            console.error('❌ Google Sheets also failed for map data:', sheetsError);
+            throw sheetsError;
+        }
+    }
+}
+
+// Google Sheets fallback for map data
+async function saveMapDataToGoogleSheets(mapData) {
+    const params = new URLSearchParams({
+        action: 'addMapData',
+        id: mapData.id,
+        reportId: mapData.report_id,
+        latitude: mapData.latitude,
+        longitude: mapData.longitude,
+        type: mapData.type,
+        status: mapData.status,
+        timestamp: mapData.created_at
+    });
+
+    const url = `${APPS_SCRIPT_URL}?${params}`;
+    const response = await fetch(url, { method: 'GET' });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
     }
 }
 
@@ -442,20 +832,32 @@ function closeSidebar() {
     document.querySelector('.sidebar-overlay').classList.remove('active');
 }
 
-function showNotification(message, type) {
+function showNotification(message, type, details = null) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
+    
+    let detailsHtml = '';
+    if (details) {
+        detailsHtml = `<div class="error-details" style="font-size: 0.8em; margin-top: 5px; opacity: 0.8;">${details}</div>`;
+    }
+    
     notification.innerHTML = `
-        <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
-        <span>${message}</span>
+        <div class="flex items-center">
+            <i class="fas ${
+                type === 'success' ? 'fa-check-circle' : 
+                type === 'warning' ? 'fa-exclamation-triangle' : 
+                'fa-exclamation-circle'
+            } mr-2"></i>
+            <span>${message}</span>
+        </div>
+        ${detailsHtml}
     `;
     
     document.body.appendChild(notification);
     
-    // Remove notification after 5 seconds
     setTimeout(() => {
         notification.remove();
-    }, 5000);
+    }, 6000);
 }
 
 function getCurrentLocation() {
@@ -555,6 +957,19 @@ function renderHome() {
     const main = document.createElement('div');
     main.innerHTML = `
         <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-900">Administrative Dashboard</h2>
+            <p class="text-gray-600">Manage system settings, user reports, and community announcements</p>
+            <div class="flex items-center gap-4 mt-2">
+                <div id="supabaseStatus" class="text-sm font-medium">
+                    <span style="color: #6B7280;"><i class="fas fa-sync-alt fa-spin"></i> Checking connection...</span>
+                </div>
+                <button onclick="testSupabaseConnection()" class="text-sm text-blue-600 hover:text-blue-800">
+                    <i class="fas fa-sync-alt mr-1"></i>Test Connection
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-8">
             <h2 class="text-2xl font-bold text-gray-900">Community Safety Dashboard</h2>
             <p class="text-gray-600">Welcome back, Admin! Here's the latest from your area.</p>
         </div>
@@ -613,109 +1028,251 @@ function renderHome() {
             </div>
         </div>
 
-        <div class="side-by-side gap-8 mb-8">
-            <div class="bg-white rounded-xl shadow-md p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900">Recent Activity</h3>
-                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View All</button>
+        <div class="admin-section">
+            <h3 class="admin-section-title">Analytics Overview</h3>
+            <div class="compact-charts">
+                <div class="chart-container">
+                    <canvas id="adminIncidentsChart"></canvas>
                 </div>
-                <div class="space-y-4">
-                    ${recentActivity.map(item => `
-                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div class="flex justify-between items-start">
-                                <div class="flex items-start space-x-3">
-                                    <div class="mt-1">
-                                        ${item.type === 'sensor_alert' ? 
-                                            '<div class="bg-red-100 p-2 rounded-full"><i class="fas fa-wifi text-red-600"></i></div>' : 
-                                            item.type === 'community_report' ? 
-                                            '<div class="bg-blue-100 p-2 rounded-full"><i class="fas fa-users text-blue-600"></i></div>' : 
-                                            '<div class="bg-green-100 p-2 rounded-full"><i class="fas fa-shield-check text-green-600"></i></div>'
-                                        }
-                                    </div>
-                                    <div>
-                                        <h4 class="font-medium text-gray-900">${item.location}</h4>
-                                        <p class="text-sm text-gray-600">${item.message}</p>
-                                        <div class="flex items-center mt-2">
-                                            <span class="text-xs ${item.status === 'resolved' ? 'bg-green-100 text-green-800' : item.status === 'investigating' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'} px-2 py-1 rounded-full">${item.status}</span>
-                                            <span class="text-xs text-gray-500 ml-2">${item.time}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
+                <div class="chart-container">
+                    <canvas id="adminResponseTimeChart"></canvas>
                 </div>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-md p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-semibold text-gray-900">Community Watch</h3>
-                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">Join Group</button>
-                </div>
-                <div class="space-y-4">
-                    ${watchGroups.map(group => `
-                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <h4 class="font-medium text-gray-900">${group.name}</h4>
-                                    <div class="flex items-center mt-2">
-                                        <span class="text-xs ${group.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'} px-2 py-1 rounded-full">${group.active ? 'Active' : 'Inactive'}</span>
-                                        <span class="text-xs text-gray-500 ml-2">${group.members} members</span>
-                                    </div>
-                                </div>
-                                <button class="text-blue-600 hover:text-blue-800">
-                                    <i class="fas fa-chevron-right"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `).join('')}
+                <div class="chart-container">
+                    <canvas id="adminUserActivityChart"></canvas>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-semibold text-gray-900">Sensor Status by Zone</h3>
-                <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">View Details</button>
+        <!-- User Reports Section - Full width with scrollable table -->
+        <div class="admin-section">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="admin-section-title">User Reports</h3>
+                <div class="text-sm text-gray-500">
+                    Showing ${Math.min(5, userReports.length)} of ${userReports.length} reports
+                </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                ${sensorStatus.map(zone => `
-                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <h4 class="font-medium text-gray-900 mb-2">${zone.zone}</h4>
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="text-sm text-gray-600">Sensors</span>
-                            <span class="text-sm font-medium">${zone.active}/${zone.total}</span>
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="overflow-x-auto">
+                    <div class="reports-table-container" style="max-height: 400px; overflow-y: auto;">
+                        <table class="w-full reports-table">
+                            <thead class="sticky top-0 bg-white z-10">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Type</th>
+                                    <th>Location</th>
+                                    <th>Timestamp</th>
+                                    <th>Status</th>
+                                    <th>Contact</th>
+                                    <th>Admin Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${userReports.slice(0, 5).map(report => `
+                                    <tr>
+                                        <td class="font-mono text-sm">${report.id}</td>
+                                        <td>
+                                            <span class="incident-type ${report.incident_type?.toLowerCase().replace(' ', '-') || 'other'}">
+                                                ${report.incident_type}
+                                            </span>
+                                        </td>
+                                        <td class="max-w-xs truncate">${report.location}</td>
+                                        <td class="text-sm">${new Date(report.created_at || report.timestamp).toLocaleString()}</td>
+                                        <td>
+                                            <span class="status-badge status-${report.status}">
+                                                ${report.status}
+                                            </span>
+                                        </td>
+                                        <td class="text-sm">
+                                            ${report.anonymous ? 'Anonymous' : (report.contact || 'N/A')}
+                                        </td>
+                                        <td class="max-w-xs">
+                                            <div class="admin-notes">
+                                                ${report.admin_notes || report.adminNotes || 'No notes'}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="flex flex-col gap-1">
+                                                <button class="btn btn-primary btn-sm" onclick="updateReportStatus('${report.id}', 'investigating')">
+                                                    Investigate
+                                                </button>
+                                                <button class="btn btn-success btn-sm" onclick="updateReportStatus('${report.id}', 'resolved')">
+                                                    Resolve
+                                                </button>
+                                                <button class="btn btn-warning btn-sm" onclick="addAdminNotes('${report.id}')">
+                                                    Add Notes
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                                
+                                ${userReports.length > 5 ? `
+                                    ${userReports.slice(5).map(report => `
+                                        <tr>
+                                            <td class="font-mono text-sm">${report.id}</td>
+                                            <td>
+                                                <span class="incident-type ${report.incident_type?.toLowerCase().replace(' ', '-') || 'other'}">
+                                                    ${report.incident_type}
+                                                </span>
+                                            </td>
+                                            <td class="max-w-xs truncate">${report.location}</td>
+                                            <td class="text-sm">${new Date(report.created_at || report.timestamp).toLocaleString()}</td>
+                                            <td>
+                                                <span class="status-badge status-${report.status}">
+                                                    ${report.status}
+                                                </span>
+                                            </td>
+                                            <td class="text-sm">
+                                                ${report.anonymous ? 'Anonymous' : (report.contact || 'N/A')}
+                                            </td>
+                                            <td class="max-w-xs">
+                                                <div class="admin-notes">
+                                                    ${report.admin_notes || report.adminNotes || 'No notes'}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="flex flex-col gap-1">
+                                                    <button class="btn btn-primary btn-sm" onclick="updateReportStatus('${report.id}', 'investigating')">
+                                                        Investigate
+                                                    </button>
+                                                    <button class="btn btn-success btn-sm" onclick="updateReportStatus('${report.id}', 'resolved')">
+                                                        Resolve
+                                                    </button>
+                                                    <button class="btn btn-warning btn-sm" onclick="addAdminNotes('${report.id}')">
+                                                        Add Notes
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                ` : ''}
+                                
+                                ${userReports.length === 0 ? `
+                                    <tr>
+                                        <td colspan="8" class="text-center py-8 text-gray-500">
+                                            <i class="fas fa-inbox text-3xl mb-2"></i>
+                                            <div>No user reports found</div>
+                                        </td>
+                                    </tr>
+                                ` : ''}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Announcements Section -->
+        <div class="admin-section">
+            <h3 class="admin-section-title">System Announcements</h3>
+            <form class="announcement-form" id="announcementForm">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="form-label">Announcement Title *</label>
+                        <input type="text" class="form-input" id="announcementTitle" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Type *</label>
+                        <select class="form-input" id="announcementType" required>
+                            <option value="info">Information</option>
+                            <option value="alert">Alert</option>
+                            <option value="warning">Warning</option>
+                            <option value="emergency">Emergency</option>
+                            <option value="update">Update</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="form-label">Date *</label>
+                        <input type="date" class="form-input" id="announcementDate" value="${new Date().toISOString().split('T')[0]}" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Author *</label>
+                        <input type="text" class="form-input" id="announcementAuthor" value="Admin" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Priority *</label>
+                        <select class="form-input" id="announcementPriority" required>
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label">Content *</label>
+                    <textarea class="form-textarea" id="announcementContent" rows="4" required placeholder="Enter announcement content..."></textarea>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-paper-plane mr-2"></i>
+                    Publish Announcement
+                </button>
+            </form>
+            
+            <h4 class="text-lg font-semibold mt-8 mb-4">Recent Announcements</h4>
+            <div class="announcements-list">
+                ${announcements.map(announcement => `
+                    <div class="announcement-item ${announcement.priority === 'high' || announcement.priority === 'critical' ? 'announcement-high-priority' : ''}">
+                        <div class="announcement-header">
+                            <div class="announcement-title">${announcement.title}</div>
+                            <div class="announcement-meta">
+                                <span class="announcement-type announcement-type-${announcement.type}">${announcement.type}</span>
+                                <span class="announcement-priority announcement-priority-${announcement.priority}">${announcement.priority}</span>
+                            </div>
                         </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
-                            <div class="bg-green-600 h-2 rounded-full" style="width: ${(zone.active/zone.total)*100}%"></div>
-                        </div>
-                        <div class="flex justify-between text-xs text-gray-500">
-                            <span>${zone.offline} offline</span>
-                            <span>${zone.alerts} alerts</span>
+                        <div class="announcement-content">${announcement.content}</div>
+                        <div class="announcement-footer">
+                            <span>By: ${announcement.author}</span>
+                            <span>${announcement.date}</span>
+                            ${announcement.created_at ? `<span class="text-xs text-gray-500">${new Date(announcement.created_at).toLocaleString()}</span>` : ''}
                         </div>
                     </div>
                 `).join('')}
             </div>
         </div>
 
-        <div class="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 rounded-xl shadow-lg p-8 text-white">
-            <div class="max-w-3xl">
-                <h3 class="text-2xl font-bold mb-4">Report Suspicious Activity</h3>
-                <p class="mb-6">See something that doesn't look right? Report it immediately and help prevent cable theft in your community.</p>
-                <div class="flex flex-col sm:flex-row gap-4">
-                    <button onclick="navigateTo('report')" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center">
-                        <i class="fas fa-exclamation-triangle mr-2"></i>
-                        Emergency Report
-                    </button>
-                    <button class="bg-white hover:bg-gray-100 text-blue-900 font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center">
-                        <i class="fas fa-clipboard-list mr-2"></i>
-                        Non-Emergency Report
-                    </button>
+        <div class="admin-section">
+            <h3 class="admin-section-title">System Management</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="card">
+                    <h4 class="font-semibold mb-4">User Management</h4>
+                    <p class="text-gray-600 mb-4">Manage user accounts and permissions</p>
+                    <button class="btn btn-primary">Manage Users</button>
+                </div>
+                <div class="card">
+                    <h4 class="font-semibold mb-4">Sensor Configuration</h4>
+                    <p class="text-gray-600 mb-4">Configure and monitor sensor networks</p>
+                    <button class="btn btn-primary">Sensor Settings</button>
+                </div>
+                <div class="card">
+                    <h4 class="font-semibold mb-4">System Logs</h4>
+                    <p class="text-gray-600 mb-4">View system activity and error logs</p>
+                    <button class="btn btn-primary">View Logs</button>
                 </div>
             </div>
         </div>
     `;
+
+    setTimeout(() => {
+        initAdminCharts();
+        document.getElementById('announcementForm').addEventListener('submit', handleAnnouncementSubmit);
+    }, 50);
+
     return main;
+}
+
+// Add this helper function for admin notes
+function addAdminNotes(reportId) {
+    const notes = prompt('Enter admin notes for this report:');
+    if (notes !== null) {
+        updateReportStatus(reportId, null, notes);
+    }
 }
 
 function renderReport() {
@@ -1067,127 +1624,90 @@ function renderMap() {
     return main;
 }
 
+// Enhanced initMap function to use Supabase map data
 function initMap() {
     if (mapInstance) {
         mapInstance.remove();
         mapMarkers = [];
     }
     
-    mapInstance = L.map('liveMap').setView([-25.7479, 28.2293], 12); // Pretoria
+    mapInstance = L.map('liveMap').setView([-25.7479, 28.2293], 12);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors"
     }).addTo(mapInstance);
 
     // Marker icons
-    const redIcon = L.divIcon({ className: "custom-marker", html: '<div style="background:#dc2626;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' });
-    const blueIcon = L.divIcon({ className: "custom-marker", html: '<div style="background:#2563eb;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' });
-    const greenIcon = L.divIcon({ className: "custom-marker", html: '<div style="background:#16a34a;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' });
-    const purpleIcon = L.divIcon({ className: "custom-marker", html: '<div style="background:#7e22ce;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' });
-    const cameraIcon = L.divIcon({ 
-        className: "camera-marker", 
-        html: '<div class="camera-marker"></div>',
-        iconSize: [20, 20]
+    const redIcon = L.divIcon({ 
+        className: "custom-marker", 
+        html: '<div style="background:#dc2626;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>',
+        iconSize: [18, 18]
+    });
+    
+    const blueIcon = L.divIcon({ 
+        className: "custom-marker", 
+        html: '<div style="background:#2563eb;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>',
+        iconSize: [18, 18]
+    });
+    
+    const greenIcon = L.divIcon({ 
+        className: "custom-marker", 
+        html: '<div style="background:#16a34a;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>',
+        iconSize: [18, 18]
     });
 
     const tagTable = document.getElementById("tagTableBody");
-    tagTable.innerHTML = '';
+    if (tagTable) tagTable.innerHTML = '';
 
-    // Add recent incidents to map
-    recentIncidents.forEach(incident => {
-        const marker = L.marker(incident.coordinates, { icon: redIcon }).addTo(mapInstance);
+    // Add markers from Supabase/Google Sheets map data
+    mapData.forEach(item => {
+        let icon;
+        let statusColor;
+        
+        if (item.type === 'Sensor') {
+            icon = blueIcon;
+            statusColor = '#2563eb';
+        } else if (item.status === 'resolved') {
+            icon = greenIcon;
+            statusColor = '#16a34a';
+        } else {
+            icon = redIcon;
+            statusColor = '#dc2626';
+        }
+        
+        const marker = L.marker([item.latitude, item.longitude], { icon: icon }).addTo(mapInstance);
         mapMarkers.push(marker);
+        
+        // Get corresponding report details
+        const report = userReports.find(r => r.id === item.report_id) || {};
         
         marker.bindPopup(`
             <div style="min-width: 200px;">
-                <h3 style="margin: 0 0 10px 0; font-weight: bold;">${incident.type}</h3>
-                <p style="margin: 5px 0; font-size: 0.9em;">${incident.location}</p>
-                <p style="margin: 5px 0; font-size: 0.9em;">ID: ${incident.id}</p>
-                <p style="margin: 5px 0; font-size: 0.9em;">
-                    Status: <span style="color: ${incident.status === 'resolved' ? 'green' : 'red'}; font-weight: bold;">${incident.status}</span>
-                </p>
-                <p style="margin: 5px 0; font-size: 0.9em;">Response: ${incident.responseTime}</p>
+                <h3 style="margin: 0 0 10px 0; font-weight: bold;">${item.type}</h3>
+                <p style="margin: 5px 0; font-size: 0.9em;">Status: <span style="color: ${statusColor}; font-weight: bold;">${item.status}</span></p>
+                <p style="margin: 5px 0; font-size: 0.9em;">ID: ${item.report_id}</p>
+                <p style="margin: 5px 0; font-size: 0.9em;">Time: ${new Date(item.created_at).toLocaleString()}</p>
+                ${report.description ? `<p style="margin: 5px 0; font-size: 0.9em;">Description: ${report.description}</p>` : ''}
             </div>
         `);
         
-        // Add row in table
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td class="px-3 py-2 border">Incident</td>
-            <td class="px-3 py-2 border">${incident.coordinates[0].toFixed(5)}</td>
-            <td class="px-3 py-2 border">${incident.coordinates[1].toFixed(5)}</td>
-            <td class="px-3 py-2 border">${incident.status}</td>
-        `;
-        tagTable.appendChild(row);
-    });
-
-    // Add video surveillance cameras to the map
-    function addCameraMarkers() {
-        videoCameras.forEach(camera => {
-            const marker = L.marker(camera.coordinates, { icon: cameraIcon }).addTo(mapInstance);
-            mapMarkers.push(marker);
-            
-            let statusColor;
-            if (camera.status === 'live') statusColor = '#dc2626';
-            else if (camera.status === 'recording') statusColor = '#059669';
-            else statusColor = '#6b7280';
-            
-            marker.bindPopup(`
-                <div style="min-width: 200px;">
-                    <h3 style="margin: 0 0 10px 0; font-weight: bold;">${camera.name}</h3>
-                    <p style="margin: 5px 0; font-size: 0.9em;">${camera.location}</p>
-                    <p style="margin: 5px 0; font-size: 0.9em;">
-                        Status: <span style="color: ${statusColor}; font-weight: bold;">${camera.status.toUpperCase()}</span>
-                    </p>
-                    <p style="margin: 5px 0; font-size: 0.9em;">Last activity: ${camera.lastActivity}</p>
-                    <button onclick="navigateTo('video')" style="background: #fbbf24; color: #1f2937; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-top: 10px; width: 100%;">
-                        View Camera
-                    </button>
-                </div>
-            `);
-            
-            // Add row in table
+        // Add row in table if table exists
+        if (tagTable) {
             const row = document.createElement("tr");
             row.innerHTML = `
-                <td class="px-3 py-2 border">Video Camera</td>
-                <td class="px-3 py-2 border">${camera.coordinates[0].toFixed(5)}</td>
-                <td class="px-3 py-2 border">${camera.coordinates[1].toFixed(5)}</td>
-                <td class="px-3 py-2 border">${camera.status}</td>
+                <td class="px-3 py-2 border">${item.type}</td>
+                <td class="px-3 py-2 border">${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)}</td>
+                <td class="px-3 py-2 border">${item.status}</td>
+                <td class="px-3 py-2 border">${new Date(item.created_at).toLocaleString()}</td>
             `;
             tagTable.appendChild(row);
-        });
-    }
-
-    // Demo random markers for other elements
-    function addRandomMarkers(icon, count, label, status) {
-        for (let i = 0; i < count; i++) {
-            const lat = -25.74 + Math.random() * 0.05;
-            const lng = 28.21 + Math.random() * 0.05;
-            const marker = L.marker([lat, lng], { icon }).addTo(mapInstance);
-            mapMarkers.push(marker);
-            marker.bindPopup(`${label} #${i + 1}`);
-
-            // Add row in table (limit to 15 rows so it doesn't get too long)
-            if (i < 15) {
-                const row = document.createElement("tr");
-                row.innerHTML = `
-                    <td class="px-3 py-2 border">${label}</td>
-                    <td class="px-3 py-2 border">${lat.toFixed(5)}</td>
-                    <td class="px-3 py-2 border">${lng.toFixed(5)}</td>
-                    <td class="px-3 py-2 border">${status}</td>
-                `;
-                tagTable.appendChild(row);
-            }
         }
+    });
+
+    // Initialize charts if on map view
+    if (activeView === 'map') {
+        initCharts();
     }
-
-    addRandomMarkers(blueIcon, 25, "Sensor", "Online");
-    addRandomMarkers(greenIcon, 10, "Patrol", "On Duty");
-    addRandomMarkers(purpleIcon, 12, "Watch Group", "Active");
-    addCameraMarkers();
-
-    // Initialize charts
-    initCharts();
 }
 
 function updateMap() {
@@ -1806,112 +2326,7 @@ function initAICharts() {
 }
 
 function renderAdmin() {
-    const main = document.createElement('div');
-    main.innerHTML = `
-        <div class="mb-8">
-            <h2 class="text-2xl font-bold text-gray-900">Administrative Dashboard</h2>
-            <p class="text-gray-600">Manage system settings, user reports, and community announcements</p>
-        </div>
-
-        <div class="admin-section">
-            <h3 class="admin-section-title">Analytics Overview</h3>
-            <div class="compact-charts">
-                <div class="chart-container">
-                    <canvas id="adminIncidentsChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="adminResponseTimeChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="adminUserActivityChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <div class="side-by-side gap-8">
-            <div class="admin-section">
-                <h3 class="admin-section-title">User Reports</h3>
-                <table class="reports-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Type</th>
-                            <th>Location</th>
-                            <th>Timestamp</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${userReports.map(report => `
-                            <tr>
-                                <td>${report.id}</td>
-                                <td>${report.incidentType}</td>
-                                <td>${report.location}</td>
-                                <td>${report.timestamp}</td>
-                                <td><span class="status-badge status-${report.status}">${report.status}</span></td>
-                                <td>
-                                    <button class="btn btn-primary btn-sm" onclick="updateReportStatus('${report.id}', 'investigating')">Investigate</button>
-                                    <button class="btn btn-success btn-sm" onclick="updateReportStatus('${report.id}', 'resolved')">Resolve</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="admin-section">
-                <h3 class="admin-section-title">System Announcements</h3>
-                <form class="announcement-form" id="announcementForm">
-                    <div>
-                        <label class="form-label">Announcement Title</label>
-                        <input type="text" class="form-input" id="announcementTitle" required>
-                    </div>
-                    <div>
-                        <label class="form-label">Announcement Content</label>
-                        <textarea class="form-textarea" id="announcementContent" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Publish Announcement</button>
-                </form>
-                
-                <h4 class="text-lg font-semibold mb-4">Recent Announcements</h4>
-                <div class="announcements-list">
-                    ${announcements.map(announcement => `
-                        <div class="announcement-item">
-                            <div class="announcement-title">${announcement.title}</div>
-                            <div class="announcement-content">${announcement.content}</div>
-                            <div class="announcement-meta">
-                                <span>By: ${announcement.author}</span>
-                                <span>${announcement.date}</span>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        </div>
-
-        <div class="admin-section">
-            <h3 class="admin-section-title">System Management</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="card">
-                    <h4 class="font-semibold mb-4">User Management</h4>
-                    <p class="text-gray-600 mb-4">Manage user accounts and permissions</p>
-                    <button class="btn btn-primary">Manage Users</button>
-                </div>
-                <div class="card">
-                    <h4 class="font-semibold mb-4">Sensor Configuration</h4>
-                    <p class="text-gray-600 mb-4">Configure and monitor sensor networks</p>
-                    <button class="btn btn-primary">Sensor Settings</button>
-                </div>
-                <div class="card">
-                    <h4 class="font-semibold mb-4">System Logs</h4>
-                    <p class="text-gray-600 mb-4">View system activity and error logs</p>
-                    <button class="btn btn-primary">View Logs</button>
-                </div>
-            </div>
-        </div>
-    `;
-
+    
     // Initialize admin charts after DOM render
     setTimeout(() => {
         initAdminCharts();
@@ -2405,134 +2820,6 @@ const MAP_CACHE_KEY = 'notizar_map_cache';
 const CACHE_TIMESTAMP_KEY = 'notizar_cache_timestamp';
 const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
 
-// Enhanced loadData function with caching
-async function loadData(forceRefresh = false) {
-    try {
-        // Check cache first
-        const cachedData = getCachedData();
-        const shouldUseCache = cachedData && !forceRefresh && !isCacheExpired();
-        
-        if (shouldUseCache) {
-            console.log("📦 Using cached data");
-            announcements = cachedData.announcements || [];
-            userReports = cachedData.userReports || [];
-            mapData = cachedData.mapData || [];
-            
-            // Show cached data immediately
-            if (activeView === 'map') {
-                initMap();
-            }
-            
-            // Then update in background
-            setTimeout(() => loadData(true), 1000);
-            return;
-        }
-
-        console.log("🌐 Fetching fresh data from Google Sheets...");
-        
-        // Show loading state
-        if (activeView === 'map') {
-            showLoadingState();
-        }
-
-        const [announcementsRes, reportsRes, mapDataRes] = await Promise.all([
-            fetch(ANNOUNCEMENTS_URL),
-            fetch(USER_REPORTS_URL),
-            fetch(MAP_DATA_URL)
-        ]);
-
-        if (!announcementsRes.ok) throw new Error(`Announcements: ${announcementsRes.status}`);
-        if (!reportsRes.ok) throw new Error(`UserReports: ${reportsRes.status}`);
-        if (!mapDataRes.ok) throw new Error(`MapData: ${mapDataRes.status}`);
-
-        const announcementsData = await announcementsRes.json();
-        const reportsData = await reportsRes.json();
-        const mapDataResponse = await mapDataRes.json();
-
-        // Process data
-        const newAnnouncements = (announcementsData.values || []).map(row => ({
-            id: parseInt(row[0]),
-            title: row[1],
-            content: row[2],
-            type: row[3],
-            date: row[4],
-            author: row[5],
-            priority: row[6]
-        }));
-
-        const newUserReports = (reportsData.values || []).map(row => ({
-            id: row[0],
-            incidentType: row[1],
-            location: row[2],
-            description: row[3],
-            timestamp: row[4],
-            status: row[5],
-            anonymous: row[6] === 'true',
-            contact: row[7],
-            adminNotes: row[8]
-        }));
-
-        const newMapData = (mapDataResponse.values || []).map(row => ({
-            reportId: row[0],
-            latitude: parseFloat(row[1]),
-            longitude: parseFloat(row[2]),
-            type: row[3],
-            status: row[4],
-            timestamp: row[5]
-        }));
-
-        // Update global arrays
-        announcements = newAnnouncements;
-        userReports = newUserReports;
-        mapData = newMapData;
-
-        // Cache the data
-        cacheData({
-            announcements: newAnnouncements,
-            userReports: newUserReports,
-            mapData: newMapData
-        });
-
-        console.log("✅ Fresh data loaded from Google Sheets!");
-        
-        // Check for new reports
-        checkForNewReports();
-        
-        // Update UI
-        if (activeView === 'map') {
-            hideLoadingState();
-            initMap();
-            showNotification('Map updated with latest data', 'success');
-        }
-        
-    } catch (error) {
-        console.error('❌ Google Sheets Error:', error);
-        
-        // Try to use cached data as fallback
-        const cachedData = getCachedData();
-        if (cachedData) {
-            console.log('🔄 Falling back to cached data');
-            announcements = cachedData.announcements || [];
-            userReports = cachedData.userReports || [];
-            mapData = cachedData.mapData || [];
-            
-            if (activeView === 'map') {
-                hideLoadingState();
-                initMap();
-                showNotification('Using cached data (connection failed)', 'warning');
-            }
-        } else {
-            console.log('🔄 Using demo data');
-            loadFallbackData();
-            if (activeView === 'map') {
-                hideLoadingState();
-                initMap();
-                showNotification('Using demo data (no connection)', 'error');
-            }
-        }
-    }
-}
-
 // Cache management functions
 function getCachedData() {
     try {
@@ -2765,4 +3052,279 @@ async function initializeAdminPage() {
     
     // Start auto-refresh
     startAutoRefresh();
+}
+
+// Add this function to debug your Supabase setup
+async function debugSupabaseSetup() {
+    try {
+        console.log("🔍 Debugging Supabase setup...");
+        
+        // Test basic connection
+        const { data: testData, error: testError } = await supabase
+            .from('announcements')
+            .select('*')
+            .limit(1);
+            
+        if (testError) {
+            console.error('❌ Basic query failed:', testError);
+            return;
+        }
+        
+        console.log("✅ Basic connection works");
+        
+        // Check table structure
+        const { data: tableInfo, error: tableError } = await supabase
+            .from('announcements')
+            .select('*')
+            .limit(0);
+            
+        if (!tableError) {
+            console.log("📋 Table columns should be:", Object.keys(tableInfo || {}));
+        }
+        
+    } catch (error) {
+        console.error('❌ Debug failed:', error);
+    }
+}
+
+// Call this during initialization
+debugSupabaseSetup();
+
+async function testAnnouncementCreation() {
+    console.log("🧪 Testing announcement creation...");
+    
+    // Test with minimal data
+    const testData = {
+        title: 'Test Announcement',
+        content: 'This is a test announcement',
+        type: 'info',
+        date: new Date().toISOString().split('T')[0],
+        author: 'Test Admin',
+        priority: 'medium'
+    };
+    
+    try {
+        const result = await addAnnouncement(
+            testData.title,
+            testData.content, 
+            testData.type,
+            testData.date,
+            testData.author,
+            testData.priority
+        );
+        console.log("✅ Test announcement result:", result);
+    } catch (error) {
+        console.error("❌ Test announcement failed:", error);
+    }
+}
+
+// Call this to test
+// testAnnouncementCreation();
+
+function debugFormFields() {
+    const fields = [
+        'announcementTitle',
+        'announcementContent', 
+        'announcementType',
+        'announcementDate',
+        'announcementAuthor',
+        'announcementPriority'
+    ];
+    
+    fields.forEach(fieldId => {
+        const element = document.getElementById(fieldId);
+        console.log(`${fieldId}:`, {
+            exists: !!element,
+            value: element?.value,
+            type: element?.type
+        });
+    });
+}
+
+// Call this after your form is rendered to check the fields
+//setTimeout(debugFormFields, 1000);
+
+// In Admin.js - update report creation
+async function createReport(incidentData) {
+    try {
+        // Remove id and let Supabase generate it
+        const { id, ...reportWithoutId } = incidentData;
+        
+        const { data, error } = await supabase
+            .from('user_reports')
+            .insert([reportWithoutId])
+            .select();
+
+        if (error) throw error;
+
+        const newReport = data[0];
+        userReports.unshift(newReport);
+        
+        console.log('✅ Report created in Supabase with ID:', newReport.id);
+        renderIncidentTable();
+        updateDashboardStats();
+        
+        return newReport;
+
+    } catch (error) {
+        console.error('❌ Error creating report:', error);
+        throw error;
+    }
+}
+
+// Similarly update announcement creation
+async function createAnnouncement(announcementData) {
+    try {
+        const { id, ...announcementWithoutId } = announcementData;
+        
+        const { data, error } = await supabase
+            .from('announcements')
+            .insert([announcementWithoutId])
+            .select();
+
+        if (error) throw error;
+
+        const newAnnouncement = data[0];
+        announcements.unshift(newAnnouncement);
+        
+        console.log('✅ Announcement created in Supabase with ID:', newAnnouncement.id);
+        renderAnnouncementsTable();
+        
+        return newAnnouncement;
+
+    } catch (error) {
+        console.error('❌ Error creating announcement:', error);
+        throw error;
+    }
+}
+
+// Update your incident table rendering
+function renderIncidentTable() {
+    const tableBody = document.getElementById('incidentTableBody');
+    if (!tableBody) return;
+
+    console.log(`Rendering ${userReports.length} incidents in admin table`);
+
+    tableBody.innerHTML = userReports.map(report => `
+        <tr>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                ${report.id}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${report.incident_type}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${report.location}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(report.status)}">
+                    ${report.status}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${formatDate(report.created_at)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <button onclick="editReport(${report.id})" class="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                <button onclick="deleteReport(${report.id})" class="text-red-600 hover:text-red-900">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+
+    // Update stats
+    updateDashboardStats();
+}
+
+function updateDashboardStats() {
+    const totalIncidents = document.getElementById('totalIncidents');
+    const pendingIncidents = document.getElementById('pendingIncidents');
+    const resolvedIncidents = document.getElementById('resolvedIncidents');
+    
+    if (totalIncidents) totalIncidents.textContent = userReports.length;
+    if (pendingIncidents) {
+        const pending = userReports.filter(r => r.status === 'pending').length;
+        pendingIncidents.textContent = pending;
+    }
+    if (resolvedIncidents) {
+        const resolved = userReports.filter(r => r.status === 'resolved').length;
+        resolvedIncidents.textContent = resolved;
+    }
+}
+// Debug function to check data
+function debugData() {
+    console.log('=== DEBUG DATA ===');
+    console.log('User Reports:', userReports);
+    console.log('Reports length:', userReports.length);
+    console.log('Sample report:', userReports[0]);
+    console.log('==================');
+}
+
+// Call this after loading data to see what's happening
+function checkDataSource() {
+    console.log('=== DATA SOURCE CHECK ===');
+    
+    // Check local storage
+    const localReports = localStorage.getItem('notizar_user_reports');
+    console.log('Local storage has reports:', !!localReports);
+    
+    // Check current data
+    console.log('Current userReports length:', userReports.length);
+    console.log('Current userReports IDs:', userReports.map(r => ({id: r.id, type: typeof r.id})));
+    
+    // Check Supabase connection
+    supabase.from('user_reports').select('id', { count: 'exact' })
+        .then(({ count, error }) => {
+            if (error) {
+                console.error('Supabase count error:', error);
+            } else {
+                console.log('Supabase total reports:', count);
+            }
+        });
+}
+function addForceReloadButton() {
+    const reloadBtn = document.createElement('button');
+    reloadBtn.textContent = 'Force Reload from Supabase';
+    reloadBtn.className = 'bg-green-500 text-white px-4 py-2 rounded ml-4';
+    reloadBtn.onclick = async () => {
+        console.log('🔄 Forcing reload from Supabase...');
+        
+        // Clear all local storage
+        localStorage.removeItem('notizar_user_reports');
+        localStorage.removeItem('notizar_announcements');
+        localStorage.removeItem('notizar_map_data');
+        localStorage.removeItem('notizar_pending_sync');
+        
+        // Reload data
+        await loadData();
+        checkDataSource();
+    };
+    
+    // Add near your debug button
+    const existingBtn = document.querySelector('button[onclick*="debugData"]');
+    if (existingBtn) {
+        existingBtn.parentNode.appendChild(reloadBtn);
+    } else {
+        document.body.appendChild(reloadBtn);
+    }
+}
+function validateAndFixData() {
+    console.log('🔍 Validating data...');
+    
+    // Check if we have string IDs instead of numbers
+    const hasStringIds = userReports.some(report => typeof report.id === 'string');
+    
+    if (hasStringIds) {
+        console.warn('⚠️ Found string IDs, data may be from old local storage');
+        
+        // Clear problematic local storage
+        localStorage.removeItem('notizar_user_reports');
+        console.log('🧹 Cleared old local storage data');
+        
+        // Reload from Supabase
+        loadData();
+        return false;
+    }
+    
+    console.log('✅ Data validation passed');
+    return true;
 }

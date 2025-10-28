@@ -1,4 +1,5 @@
 
+
         /* style.css - Updated for all new features */
         :root {
             --primary: #2563eb;
@@ -2047,4 +2048,100 @@
         transform: translateX(0);
         opacity: 1;
     }
+}
+/* Announcement Styles */
+.announcement-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: white;
+}
+
+.announcement-high-priority {
+    border-left: 4px solid #ef4444;
+    background: #fef2f2;
+}
+
+.announcement-header {
+    display: flex;
+    justify-content: between;
+    align-items: start;
+    margin-bottom: 8px;
+}
+
+.announcement-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    flex: 1;
+}
+
+.announcement-meta {
+    display: flex;
+    gap: 8px;
+}
+
+.announcement-type {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.announcement-type-info { background: #dbeafe; color: #1e40af; }
+.announcement-type-alert { background: #fef3c7; color: #d97706; }
+.announcement-type-warning { background: #fef3c7; color: #d97706; }
+.announcement-type-emergency { background: #fecaca; color: #dc2626; }
+.announcement-type-update { background: #d1fae5; color: #065f46; }
+
+.announcement-priority {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.announcement-priority-low { background: #d1fae5; color: #065f46; }
+.announcement-priority-medium { background: #fef3c7; color: #d97706; }
+.announcement-priority-high { background: #fecaca; color: #dc2626; }
+.announcement-priority-critical { background: #fecaca; color: #dc2626; border: 1px solid #dc2626; }
+
+.announcement-content {
+    color: #4b5563;
+    margin-bottom: 12px;
+}
+
+.announcement-footer {
+    display: flex;
+    justify-content: between;
+    align-items: center;
+    font-size: 0.875rem;
+    color: #6b7280;
+    gap: 16px;
+}
+
+/* Connection Status */
+.connection-status {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.connection-online {
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+}
+
+.connection-offline {
+    background: #fef3c7;
+    color: #d97706;
+    border: 1px solid #fcd34d;
+}
+
+.connection-error {
+    background: #fecaca;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
 }
