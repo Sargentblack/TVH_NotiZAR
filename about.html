@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="about.css">
 </head>
 <body>
     <!-- Navigation Bar -->
@@ -35,10 +36,6 @@
                 <button id="header-login-btn" class="nav-action-btn login-btn">
                     <i class="fas fa-sign-in-alt"></i>
                     <span>Login</span>
-                </button>
-                <button id="header-report-btn" class="nav-action-btn report-btn">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <span>Report</span>
                 </button>
             </div>
         </div>
@@ -91,22 +88,27 @@
                         
                         <p>Our mission is to bridge the critical gap between traditional emergency response systems and the real-time needs of modern communities. We provide the tools and platform for neighbors to protect neighbors, creating a network of safety that extends beyond individual households to entire neighborhoods.</p>
                         
-                        <div class="mission-stat">
-                            <div class="mission-stat-number">5,000+</div>
-                            <div class="mission-stat-label">Homes Protected</div>
+                        <div class="mission-stats">
+                            <div class="mission-stat">
+                                <div class="mission-stat-number">5,000+</div>
+                                <div class="mission-stat-label">Homes Protected</div>
+                            </div>
+                            <div class="mission-stat">
+                                <div class="mission-stat-number">15+</div>
+                                <div class="mission-stat-label">Active Communities</div>
+                            </div>
+                            <div class="mission-stat">
+                                <div class="mission-stat-number">500+</div>
+                                <div class="mission-stat-label">Incidents Prevented</div>
+                            </div>
                         </div>
-                        <div class="mission-stat">
-                            <div class="mission-stat-number">15+</div>
-                            <div class="mission-stat-label">Active Communities</div>
-                        </div>
-                        <div class="mission-stat">
-                            <div class="mission-stat-number">500+</div>
-                            <div class="mission-stat-label">Incidents Prevented</div>
-                        </div>
-                    </div>
                     </div>
                     <div class="detailed-image">
-                        <img src="Image1.jpg" alt="NotiZAR Mission">
+                        <div class="icon-section">
+                            <img src="39002dtpcrop.jpg" alt="Community Protection Icon">
+                            <h3>Community Protection</h3>
+                            <p>Empowering neighborhoods with real-time safety alerts and collaborative security solutions</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -134,7 +136,11 @@
                         </ul>
                     </div>
                     <div class="detailed-image">
-                        <img src="Image1.jpg" alt="NotiZAR Story - TVH Hackathon">
+                        <div class="icon-section">
+                            <img src="IMG-20250923-WA0050.jpg" alt="Innovation Journey Icon">
+                            <h3>Innovation Journey</h3>
+                            <p>From hackathon idea to community platform - revolutionizing neighborhood safety</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -150,10 +156,10 @@
                     <!-- Team Member 1 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="Sarah Johnson">
+                            <i class="fas fa-user-tie"></i>
                         </div>
                         <div class="team-info">
-                            <h3>Sarah Johnson</h3>
+                            <h3>Maluleke HA</h3>
                             <p class="team-role">CEO & Founder</p>
                             <p class="team-bio">Former community safety officer with 15 years experience in public safety and technology integration.</p>
                             <div class="team-social">
@@ -166,10 +172,10 @@
                     <!-- Team Member 2 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="David Chen">
+                            <i class="fas fa-code"></i>
                         </div>
                         <div class="team-info">
-                            <h3>David Chen</h3>
+                            <h3>KUFA TL</h3>
                             <p class="team-role">CTO</p>
                             <p class="team-bio">Software architect specializing in real-time systems and mobile application development.</p>
                             <div class="team-social">
@@ -182,10 +188,10 @@
                     <!-- Team Member 3 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="Maria Rodriguez">
+                            <i class="fas fa-users"></i>
                         </div>
                         <div class="team-info">
-                            <h3>Maria Rodriguez</h3>
+                            <h3>Manamela A</h3>
                             <p class="team-role">Head of Community Operations</p>
                             <p class="team-bio">Community organizer with extensive experience in neighborhood watch programs and public safety.</p>
                             <div class="team-social">
@@ -198,10 +204,10 @@
                     <!-- Team Member 4 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="James Thompson">
+                            <i class="fas fa-laptop-code"></i>
                         </div>
                         <div class="team-info">
-                            <h3>James Thompson</h3>
+                            <h3>Phasha SR</h3>
                             <p class="team-role">Lead Developer</p>
                             <p class="team-bio">Full-stack developer focused on creating scalable and secure community protection systems.</p>
                             <div class="team-social">
@@ -214,10 +220,10 @@
                     <!-- Team Member 5 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="Amina Patel">
+                            <i class="fas fa-shield-alt"></i>
                         </div>
                         <div class="team-info">
-                            <h3>Amina Patel</h3>
+                            <h3>Malelu JR</h3>
                             <p class="team-role">Security Analyst</p>
                             <p class="team-bio">Cybersecurity expert ensuring our platform maintains the highest standards of data protection.</p>
                             <div class="team-social">
@@ -230,10 +236,10 @@
                     <!-- Team Member 6 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="Michael Brown">
+                            <i class="fas fa-handshake"></i>
                         </div>
                         <div class="team-info">
-                            <h3>Michael Brown</h3>
+                            <h3>Mofokeng K.G</h3>
                             <p class="team-role">Community Liaison</p>
                             <p class="team-bio">Building relationships with local authorities and community leaders across Tshwane.</p>
                             <div class="team-social">
@@ -246,10 +252,10 @@
                     <!-- Team Member 7 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="Lisa Wang">
+                            <i class="fas fa-palette"></i>
                         </div>
                         <div class="team-info">
-                            <h3>Lisa Wang</h3>
+                            <h3>Mtubane S</h3>
                             <p class="team-role">UX/UI Designer</p>
                             <p class="team-bio">Creating intuitive and accessible interfaces that make community protection simple for everyone.</p>
                             <div class="team-social">
@@ -262,31 +268,15 @@
                     <!-- Team Member 8 -->
                     <div class="team-card">
                         <div class="team-image">
-                            <img src="Image1.jpg" alt="Robert Wilson">
+                            <i class="fas fa-chart-line"></i>
                         </div>
                         <div class="team-info">
-                            <h3>Robert Wilson</h3>
+                            <h3>Maake M</h3>
                             <p class="team-role">Data Scientist</p>
                             <p class="team-bio">Developing AI algorithms for threat prediction and pattern recognition in community safety data.</p>
                             <div class="team-social">
                                 <a href="#"><i class="fab fa-linkedin"></i></a>
                                 <a href="#"><i class="fab fa-kaggle"></i></a>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Team Member 9 -->
-                    <div class="team-card">
-                        <div class="team-image">
-                            <img src="Image1.jpg" alt="Grace Mbeki">
-                        </div>
-                        <div class="team-info">
-                            <h3>Grace Mbeki</h3>
-                            <p class="team-role">Customer Support Lead</p>
-                            <p class="team-bio">Ensuring every community member receives the support they need to use NotiZAR effectively.</p>
-                            <div class="team-social">
-                                <a href="#"><i class="fab fa-linkedin"></i></a>
-                                <a href="#"><i class="fab fa-whatsapp"></i></a>
                             </div>
                         </div>
                     </div>
