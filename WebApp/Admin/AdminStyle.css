@@ -2570,3 +2570,23 @@ body {
     position: relative;
     z-index: 5;
 }
+
+.sensor-marker {
+    z-index: 1000;
+}
+
+.custom-marker.sensor-marker div {
+    animation: pulse-sensor 2s infinite;
+}
+
+@keyframes pulse-sensor {
+    0% {
+        box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(139, 92, 246, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+    }
+}
